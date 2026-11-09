@@ -55,6 +55,8 @@ def dashboard_stats(db: Session, symbol: str = "XAUUSD") -> dict:
     active_models = {
         "hmm": [
             {
+                "id": v.id,
+                "version": v.version,
                 "version_id": v.id,
                 "model_id": v.model_id,
                 "created_at": v.created_at.isoformat(),
@@ -67,6 +69,8 @@ def dashboard_stats(db: Session, symbol: str = "XAUUSD") -> dict:
         ],
         "random_forest": [
             {
+                "id": v.id,
+                "version": v.version,
                 "version_id": v.id,
                 "model_id": v.model_id,
                 "created_at": v.created_at.isoformat(),
