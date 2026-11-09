@@ -59,6 +59,16 @@ def _latest_candle_ts(db: Session, timeframe: str, symbol: str = "XAUUSD") -> da
     return ensure_utc(row[0]) if row else None
 
 
+def _latest_candle_source(db: Session, symbol: str = "XAUUSD") -> str | None:
+    row = (
+        db.query(MarketCandle.source)
+        .filter(MarketCandle.symbol == symbol, MarketCandle.timeframe == "M15")
+        .order_by(MarketCandle.ts.desc())
+        .first()
+    )
+    return row[0] if row else None
+
+
 def compute_latest_regime(db: Session, symbol: str = "XAUUSD") -> dict:
     now = utcnow()
 
@@ -177,6 +187,7 @@ def compute_latest_regime(db: Session, symbol: str = "XAUUSD") -> dict:
         "model_version": hmm_version.id,
         "feature_version": hmm_artifact["meta"].get("feature_version"),
         "data_timestamp": data_timestamp.isoformat(),
+        "data_source": _latest_candle_source(db, symbol),
         "expiry": pred.expiry_ts.isoformat(),
         "reason_codes": out["reason_codes"],
         "permission": permission,
