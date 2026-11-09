@@ -1,0 +1,53 @@
+"""Chronological splits with purge/embargo — no shuffling, no leakage."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+def chronological_indices(n: int, train_frac: float, val_frac: float) -> dict[str, tuple[int, int]]:
+    """Return (start, end) exclusive ranges for train/val/test in time order."""
+    if train_frac + val_frac >= 1.0:
+        raise ValueError("train_frac + val_frac must be < 1.0")
+    train_end = int(n * train_frac)
+    val_end = int(n * (train_frac + val_frac))
+    return {"train": (0, train_end), "val": (train_end, val_end), "test": (val_end, n)}
+
+
+@dataclass
+class WalkForwardConfig:
+    initial_train: int  # bars of initial training window
+    test_size: int  # bars per test fold
+    step: int | None = None  # default = test_size (non-overlapping folds)
+    embargo: int = 12  # bars removed between train end and test start
+    min_train: int = 1000
+
+    def __post_init__(self):
+        if self.step is None:
+            self.step = self.test_size
+
+
+def walk_forward_folds(n: int, cfg: WalkForwardConfig) -> list[dict[str, tuple[int, int]]]:
+    """Expanding-window folds: train [0, t-embargo), test [t, t+test_size)."""
+    folds = []
+    train_end = cfg.initial_train
+    while train_end + cfg.embargo + cfg.test_size <= n:
+        test_start = train_end + cfg.embargo
+        folds.append({"train": (0, train_end), "test": (test_start, test_start + cfg.test_size)})
+        train_end = test_start + cfg.test_size
+    return folds
+
+
+def purge_train_indices(test_start: int, embargo: int) -> tuple[int, int]:
+    """Train indices that are safe w.r.t. a test window starting at test_start.
+
+    Labels use `embargo` future bars, so any train sample at index >= test_start - embargo
+    would leak label information into the test window (purge/embargo rule).
+    """
+    return (0, max(0, test_start - embargo))
+
+
+def sub_train_val_split(train: tuple[int, int], val_frac: float = 0.2) -> dict[str, tuple[int, int]]:
+    """Split a train range into subtrain/subval, both respecting the same chronological order."""
+    start, end = train
+    cut = start + int((end - start) * (1.0 - val_frac))
+    return {"subtrain": (start, cut), "subval": (cut, end)}

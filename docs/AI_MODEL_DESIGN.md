@@ -46,8 +46,9 @@ Kết quả mapping + bằng chứng thống kê lưu vào `hmm_models.state_map
 
 **Causal inference (bắt buộc):**
 - Chỉ dùng **filtered posterior** (forward algorithm); cấm Viterbi smoothing toàn chuỗi cho tín hiệu lịch sử.
+- ⚠️ Bẫy thực tế đã xác nhận: `hmmlearn.predict_proba()` trả về **smoothed** posterior (forward-backward, dùng cả dữ liệu tương lai) — GMRAI KHÔNG BAO GIỜ dùng nó; có regression test khóa điều này (`test_predict_proba_is_smoothed_not_causal`).
 - Tại thời điểm t chỉ dùng dữ liệu đến t.
-- Engine suy luận chuẩn: `ml/hmm_inference.py` (`HmmFilter` thuần NumPy — tham chiếu cho port MQL5), parity test với hmmlearn (tol 1e-6).
+- Engine suy luận chuẩn: `ml/hmm_inference.py` (`HmmFilter` thuần NumPy — tham chiếu cho port MQL5), parity test với forward lattice của hmmlearn (tol 1e-10), dùng đúng convention `log(where(p==0, 1, p))` của hmmlearn 0.3.x.
 - Warm-up: replay N nến M15 đã đóng gần nhất (mặc định 500) rồi lấy posterior cuối; kiểm tra inference sau restart.
 
 **Early Trend:** không phải hidden state thứ 6. Suy ra từ: filtered posterior, transition matrix (xác suất chuyển vào state TREND), delta posterior theo thời gian, H1 context, feature xu hướng. Chỉ là cảnh báo nghiên cứu (EARLY_TREND_UP/DOWN), không cấp quyền giao dịch.
