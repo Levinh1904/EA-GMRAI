@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.routers.auth import auth_router, limiter
 from app.routers.backtest import backtest_router
 from app.routers.features import features_router
+from app.routers.history import history_router
 from app.routers.ingest import ingest_router
 from app.routers.market import market_router
 from app.routers.onnx import onnx_router
@@ -23,6 +24,7 @@ api_router.include_router(backtest_router)
 api_router.include_router(registry_router)
 api_router.include_router(onnx_router)
 api_router.include_router(regime_router)
+api_router.include_router(history_router)
 api_router.include_router(stats_router)
 api_router.include_router(system_router)
 

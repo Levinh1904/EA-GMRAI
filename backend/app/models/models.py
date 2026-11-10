@@ -271,3 +271,85 @@ class SystemLog(Base):
     message: Mapped[str] = mapped_column(String(1024))
     meta_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class RegimeHistoryRun(Base):
+    __tablename__ = "regime_history_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(16), default="XAUUSD")
+    timeframe: Mapped[str] = mapped_column(String(8), default="M15")
+    hmm_model_version_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rf_model_version_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    feature_version: Mapped[str] = mapped_column(String(16), default="v1")
+    data_source: Mapped[str] = mapped_column(String(32), default="ftmo_mt5")
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending/running/done/failed
+    config_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    bar_count: Mapped[int] = mapped_column(Integer, default=0)
+    segment_count: Mapped[int] = mapped_column(Integer, default=0)
+    data_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    data_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class RegimeHistoryBar(Base):
+    __tablename__ = "regime_history_bars"
+    __table_args__ = (
+        UniqueConstraint("run_id", "ts", name="uq_history_bar"),
+        Index("ix_history_bar_run_ts", "run_id", "ts"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(Integer, index=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    regime: Mapped[str] = mapped_column(String(24))
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    permission: Mapped[str] = mapped_column(String(16), default="NO_TRADE")
+    hmm_state: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    hmm_probs_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    rf_probs_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    reason_codes_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    open: Mapped[float] = mapped_column(Float, default=0.0)
+    high: Mapped[float] = mapped_column(Float, default=0.0)
+    low: Mapped[float] = mapped_column(Float, default=0.0)
+    close: Mapped[float] = mapped_column(Float, default=0.0)
+    atr_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    adx_norm: Mapped[float | None] = mapped_column(Float, nullable=True)
+    efficiency_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
+    h1_trend_context: Mapped[float | None] = mapped_column(Float, nullable=True)
+    m5_momentum: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class RegimeSegment(Base):
+    __tablename__ = "regime_segments"
+    __table_args__ = (Index("ix_segment_run_start", "run_id", "start_ts"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(Integer, index=True)
+    symbol: Mapped[str] = mapped_column(String(16), default="XAUUSD")
+    timeframe: Mapped[str] = mapped_column(String(8), default="M15")
+    segment_index: Mapped[int] = mapped_column(Integer, default=0)
+    regime: Mapped[str] = mapped_column(String(24))
+    start_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    end_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    bar_count: Mapped[int] = mapped_column(Integer, default=0)
+    duration_minutes: Mapped[int] = mapped_column(Integer, default=0)
+    start_price: Mapped[float] = mapped_column(Float, default=0.0)
+    end_price: Mapped[float] = mapped_column(Float, default=0.0)
+    high_price: Mapped[float] = mapped_column(Float, default=0.0)
+    low_price: Mapped[float] = mapped_column(Float, default=0.0)
+    net_change: Mapped[float] = mapped_column(Float, default=0.0)
+    mfe: Mapped[float] = mapped_column(Float, default=0.0)
+    mae: Mapped[float] = mapped_column(Float, default=0.0)
+    atr_mean: Mapped[float | None] = mapped_column(Float, nullable=True)
+    adx_mean: Mapped[float | None] = mapped_column(Float, nullable=True)
+    efficiency_mean: Mapped[float | None] = mapped_column(Float, nullable=True)
+    hmm_probs_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    confidence_mean: Mapped[float] = mapped_column(Float, default=0.0)
+    model_version_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    split_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)  # data_gap | None
+    range_touches_high: Mapped[int] = mapped_column(Integer, default=0)
+    range_touches_low: Mapped[int] = mapped_column(Integer, default=0)

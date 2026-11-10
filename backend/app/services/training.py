@@ -67,15 +67,16 @@ def load_candles(
     m5_limit: int = 30_000,
     m15_limit: int = 12_000,
     h1_limit: int = 4_000,
+    source: str | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     def fetch(tf: str, limit: int) -> pd.DataFrame:
-        rows = (
+        q = (
             db.query(MarketCandle)
             .filter(MarketCandle.symbol == symbol, MarketCandle.timeframe == tf)
-            .order_by(MarketCandle.ts.desc())
-            .limit(limit)
-            .all()
         )
+        if source:
+            q = q.filter(MarketCandle.source == source)
+        rows = q.order_by(MarketCandle.ts.desc()).limit(limit).all()
         candles = [
             {
                 "ts": ensure_utc(r.ts),
