@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.4.0] — 2026-11-11
+
+### Professional UI/UX & Advanced Chart Overhaul
+- Chart engine: chuyển Live Market sang **TradingView Lightweight Charts v5**
+  (kéo ngang, zoom con lăn theo con trỏ, kéo trục giá, double-click reset,
+  crosshair magnet + OHLC legend, touch, lazy-load nến khi kéo về quá khứ —
+  không nhảy vị trí, toggle Grid/Crosshair/Volume/EMA/AI/Reference, fullscreen,
+  range presets 1D→ALL). Nút "Tín hiệu" disabled kèm tooltip (backend chưa có
+  dữ liệu BUY/SELL — không bịa marker).
+- Regime bands: canvas primitive trên chart (AI + Reference, nửa trên/dưới),
+  click band mở popover chi tiết đoạn regime.
+- Sidebar: nhóm chức năng (Tổng quan/Thị trường/Phân tích AI/Mô hình/Dữ liệu),
+  thu gọn icon-only (persist), drawer mobile, status dots từ dữ liệu thật
+  (freshness/health/active models/sync).
+- Live Market: ticker (giá, change%, spread, market status, kết nối, "chỉ nến
+  đã đóng"), panel phải (regime, HMM/RF probs, Reference, H1 context, ATR,
+  Early warning), đáy (timeline strip clickable, AI vs Reference agreement,
+  stats, transitions).
+- Historical Analyzer: filter bar (khoảng ngày UTC, TF — M5/H1 disabled có
+  giải thích, phiên bản model HMM, chế độ AI/Reference), deep-link ?tab=.
+- Dashboard: regime donut, freshness gauges, Model Performance Over Time
+  (F1/false-trend theo run) trên /compare và /backtesting.
+- Design system: design tokens (spacing/typography/surfaces/status), phẳng,
+  bỏ glow/gradient. Cấu trúc components/{layout,charts,market,regime,
+  analytics,tables,ui}.
+- QA trình duyệt thật: crosshair legend hiển thị OHLC thật, TF H1 (spacing
+  3600s), lazy-load 5.000→8.163 nến không nhảy vị trí, sidebar thu gọn
+  236→60px, 13 routes + 12 history tabs không regression, build xanh.
+
 ## [0.3.0] — 2026-11-11
 
 ### Independent Reference Regime Engine + AI vs Reference validation

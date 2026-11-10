@@ -1,6 +1,6 @@
 # GMRAI — Project Status
 
-> Cập nhật: 2026-11-11 — **v0.3.0: Independent Reference Engine + AI vs Reference validation + Outcome evaluator hoàn thành (chạy trên dữ liệu FTMO thật).**
+> Cập nhật: 2026-11-11 — **v0.4.0: UI/UX overhaul + TradingView Lightweight Charts hoàn thành (QA trình duyệt).**
 
 ## 1. Trạng thái milestones
 
@@ -68,6 +68,14 @@
   ~45-46% — model hiện tại chưa có edge trên tài khoản demo (báo cáo trung thực).
 - 115 tests xanh (13 test mới: independence, causality, reproducibility,
   indicator math, outcomes, metrics).
+
+## 2.7. UI/UX Professional Overhaul (v0.4.0)
+
+- Live Market dùng lightweight-charts v5 (TradingView-like): pan/zoom/
+  crosshair/lazy-load verified trong trình duyệt thật (xem CHANGELOG 0.4.0).
+- Sidebar nhóm + thu gọn + status dots; History có filter bar (ngày, model
+  version, chế độ AI/Reference); dashboard thêm donut/gauges/model performance.
+- 13 routes + 12 history tabs không regression; build xanh; backend không đổi.
 
 ## 3. Blocker còn lại (cần người dùng)
 
