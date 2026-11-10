@@ -172,6 +172,13 @@ def get_bars(
                 "efficiency_ratio": r.efficiency_ratio,
                 "h1_trend_context": r.h1_trend_context,
                 "m5_momentum": r.m5_momentum,
+                "reference_regime": r.reference_regime,
+                "reference_reason": r.reference_reason,
+                "di_gap": r.di_gap,
+                "ema_slope": r.ema_slope,
+                "ref_channel_high": r.ref_channel_high,
+                "ref_channel_low": r.ref_channel_low,
+                "ref_displacement": r.ref_displacement,
             }
             for r in rows
         ],
@@ -313,6 +320,36 @@ def compare(
     other_bars = load_run_bars(db, vs_run_id)
     return {"mode": "run_vs_run",
             **compare_runs(bars, other_bars, f"run_{run_id}", f"run_{vs_run_id}")}
+
+
+@history_router.get("/runs/{run_id}/stats/vs_reference")
+def stats_vs_reference(
+    run_id: int,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    run = _get_run_or_404(db, run_id)
+    bars = load_run_bars(db, run_id)
+    from app.ml.history_stats import compare_ai_vs_reference
+
+    return {
+        "run_id": run_id,
+        "reference_version": run.reference_version,
+        "reference_config": run.reference_config_json,
+        **compare_ai_vs_reference(bars),
+    }
+
+
+@history_router.get("/runs/{run_id}/stats/outcomes")
+def stats_outcomes(
+    run_id: int,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _get_run_or_404(db, run_id)
+    from app.services.history import load_outcome_summary
+
+    return {"run_id": run_id, **load_outcome_summary(db, run_id)}
 
 
 # ---------------------------------------------------------------- exports

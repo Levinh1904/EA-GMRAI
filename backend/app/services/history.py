@@ -103,6 +103,24 @@ def run_history_job(db: Session, run_id: int, cfg: HistoryConfig) -> dict:
     if len(bars) < 100:
         raise HistoryJobError(f"Too few inferred bars: {len(bars)}")
 
+    # Independent rule-based reference classification (closed candles only).
+    from app.ml.reference_engine import ReferenceConfig, classify_reference
+
+    ref_cfg = ReferenceConfig()
+    reference = classify_reference(df_m15, ref_cfg)
+    reference = reference.reindex(bars.index)
+    run.reference_version = ref_cfg.version
+    run.reference_config_json = ref_cfg.to_dict()
+
+    # Future outcome evaluation (evaluation only — never alters predictions).
+    from app.ml.outcome import OutcomeConfig, compute_outcomes
+
+    out_cfg = OutcomeConfig()
+    close = df_m15["close"].reindex(bars.index)
+    atr_series = atr(df_m15, 14).reindex(bars.index)
+    outcomes = compute_outcomes(close, df_m15["high"].reindex(bars.index),
+                                df_m15["low"].reindex(bars.index), atr_series, out_cfg)
+
     run.data_start = ensure_utc(bars.index[0])
     run.data_end = ensure_utc(bars.index[-1])
     run.bar_count = len(bars)
@@ -118,6 +136,7 @@ def run_history_job(db: Session, run_id: int, cfg: HistoryConfig) -> dict:
 
     bar_rows = []
     for ts, row in bars.iterrows():
+        ref_row = reference.loc[ts] if ts in reference.index else None
         bar_rows.append(
             {
                 "run_id": run_id,
@@ -138,10 +157,48 @@ def run_history_job(db: Session, run_id: int, cfg: HistoryConfig) -> dict:
                 "efficiency_ratio": float(row["efficiency_ratio"]),
                 "h1_trend_context": float(row["h1_trend_context"]),
                 "m5_momentum": float(row["m5_momentum"]),
+                "reference_regime": str(ref_row["regime"]) if ref_row is not None else None,
+                "reference_reason": str(ref_row["reason"]) if ref_row is not None else None,
+                "di_gap": float(ref_row["di_gap"]) if ref_row is not None and pd.notna(ref_row["di_gap"]) else None,
+                "ema_slope": float(ref_row["ema_slope"]) if ref_row is not None and pd.notna(ref_row["ema_slope"]) else None,
+                "ref_channel_high": float(ref_row["channel_high"]) if ref_row is not None and pd.notna(ref_row["channel_high"]) else None,
+                "ref_channel_low": float(ref_row["channel_low"]) if ref_row is not None and pd.notna(ref_row["channel_low"]) else None,
+                "ref_displacement": float(ref_row["displacement"]) if ref_row is not None and pd.notna(ref_row["displacement"]) else None,
             }
         )
     for i in range(0, len(bar_rows), BULK_CHUNK):
         db.bulk_insert_mappings(RegimeHistoryBar, bar_rows[i : i + BULK_CHUNK])
+    db.commit()
+
+    # outcomes (bulk) — keyed identically to bars (same run, same timestamps)
+    from app.models import OutcomeEvaluation
+
+    out_rows = []
+    ai_regime = {ensure_utc(ts): row["regime"] for ts, row in bars.iterrows()}
+    ref_regime = {
+        ensure_utc(ts): reference.loc[ts]["regime"]
+        for ts in bars.index
+        if ts in reference.index and pd.notna(reference.loc[ts]["regime"])
+    }
+    for ts, row in outcomes.iterrows():
+        for h in out_cfg.horizons:
+            out_rows.append(
+                {
+                    "run_id": run_id,
+                    "ts": ensure_utc(ts),
+                    "horizon": int(h),
+                    "fwd_return": float(row[f"fwd_return_{h}"]),
+                    "mfe": float(row[f"mfe_{h}"]),
+                    "mae": float(row[f"mae_{h}"]),
+                    "direction": str(row[f"direction_{h}"]),
+                    "in_range": bool(row[f"in_range_{h}"]),
+                    "ai_regime": ai_regime.get(ensure_utc(ts)),
+                    "reference_regime": ref_regime.get(ensure_utc(ts)),
+                }
+            )
+    db.query(OutcomeEvaluation).filter(OutcomeEvaluation.run_id == run_id).delete()
+    for i in range(0, len(out_rows), BULK_CHUNK):
+        db.bulk_insert_mappings(OutcomeEvaluation, out_rows[i : i + BULK_CHUNK])
     db.commit()
 
     for seg in segments:
@@ -195,6 +252,13 @@ def load_run_bars(db: Session, run_id: int) -> pd.DataFrame:
                 "efficiency_ratio": r.efficiency_ratio,
                 "h1_trend_context": r.h1_trend_context,
                 "m5_momentum": r.m5_momentum,
+                "reference_regime": r.reference_regime,
+                "reference_reason": r.reference_reason,
+                "di_gap": r.di_gap,
+                "ema_slope": r.ema_slope,
+                "ref_channel_high": r.ref_channel_high,
+                "ref_channel_low": r.ref_channel_low,
+                "ref_displacement": r.ref_displacement,
             }
             for r in rows
         ]
@@ -259,3 +323,49 @@ def reference_labels(db: Session, run: RegimeHistoryRun, horizon: int = 12) -> p
     )
     atr_series = atr(pd.DataFrame({"high": [r.high for r in rows], "low": [r.low for r in rows], "close": close.values}, index=close.index), 14)
     return make_labels(close, atr_series=atr_series, horizon=horizon, up_threshold_atr=0.75)
+
+
+def load_outcome_summary(db: Session, run_id: int) -> dict:
+    """Per-regime per-horizon aggregated future outcomes (evaluation only)."""
+    from app.models import OutcomeEvaluation
+
+    rows = db.query(OutcomeEvaluation).filter(OutcomeEvaluation.run_id == run_id).all()
+    if not rows:
+        return {"error": "no outcome data for this run"}
+    df = pd.DataFrame(
+        [
+            {
+                "ts": ensure_utc(r.ts),
+                "horizon": r.horizon,
+                "fwd_return": r.fwd_return,
+                "mfe": r.mfe,
+                "mae": r.mae,
+                "direction": r.direction,
+                "in_range": r.in_range,
+                "ai_regime": r.ai_regime,
+                "reference_regime": r.reference_regime,
+            }
+            for r in rows
+        ]
+    )
+    out: dict = {"note": "Future outcomes per prediction timestamp — evaluation only.",
+                 "horizons": sorted(df["horizon"].unique().tolist()), "per_regime": {}}
+    for basis in ("ai_regime", "reference_regime"):
+        for regime, grp in df.groupby(basis):
+            if regime is None:
+                continue
+            stats = {}
+            for h, g2 in grp.groupby("horizon"):
+                stats[str(h)] = {
+                    "n": int(len(g2)),
+                    "mean_fwd_return": round(float(g2["fwd_return"].mean()), 3),
+                    "win_rate_pct": round(100.0 * float((g2["fwd_return"] > 0).mean()), 1),
+                    "mean_mfe": round(float(g2["mfe"].mean()), 3),
+                    "mean_mae": round(float(g2["mae"].mean()), 3),
+                    "pct_up": round(100.0 * float((g2["direction"] == "UP").mean()), 1),
+                    "pct_down": round(100.0 * float((g2["direction"] == "DOWN").mean()), 1),
+                    "pct_flat": round(100.0 * float((g2["direction"] == "FLAT").mean()), 1),
+                    "pct_in_range": round(100.0 * float(g2["in_range"].mean()), 1),
+                }
+            out["per_regime"][f"{basis}:{regime}"] = stats
+    return out

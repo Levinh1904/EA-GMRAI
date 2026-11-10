@@ -289,6 +289,8 @@ class RegimeHistoryRun(Base):
     segment_count: Mapped[int] = mapped_column(Integer, default=0)
     data_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     data_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reference_version: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    reference_config_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -321,6 +323,33 @@ class RegimeHistoryBar(Base):
     efficiency_ratio: Mapped[float | None] = mapped_column(Float, nullable=True)
     h1_trend_context: Mapped[float | None] = mapped_column(Float, nullable=True)
     m5_momentum: Mapped[float | None] = mapped_column(Float, nullable=True)
+    reference_regime: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    reference_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    di_gap: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ema_slope: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ref_channel_high: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ref_channel_low: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ref_displacement: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class OutcomeEvaluation(Base):
+    __tablename__ = "outcome_evaluations"
+    __table_args__ = (
+        UniqueConstraint("run_id", "ts", "horizon", name="uq_outcome_key"),
+        Index("ix_outcome_run_ts", "run_id", "ts"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(Integer, index=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    horizon: Mapped[int] = mapped_column(Integer)
+    fwd_return: Mapped[float] = mapped_column(Float, default=0.0)
+    mfe: Mapped[float] = mapped_column(Float, default=0.0)
+    mae: Mapped[float] = mapped_column(Float, default=0.0)
+    direction: Mapped[str] = mapped_column(String(8), default="FLAT")  # UP/DOWN/FLAT
+    in_range: Mapped[bool] = mapped_column(Boolean, default=False)
+    ai_regime: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    reference_regime: Mapped[str | None] = mapped_column(String(24), nullable=True)
 
 
 class RegimeSegment(Base):

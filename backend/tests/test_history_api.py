@@ -164,3 +164,48 @@ def test_history_requires_admin_to_run(hist_client, hist_token):
     token = r.json()["access_token"]
     r = hist_client.post("/api/v1/history/run", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 403
+
+
+def test_history_vs_reference_endpoint(hist_client, hist_token, history_setup):
+    _, run_id, _ = history_setup
+    h = {"Authorization": f"Bearer {hist_token}"}
+    r = hist_client.get(f"/api/v1/history/runs/{run_id}/stats/vs_reference", headers=h)
+    assert r.status_code == 200, r.text[:300]
+    body = r.json()
+    assert body["reference_version"] == "ref_v1"
+    assert body["reference_config"]["version"] == "ref_v1"
+    assert 0.0 <= body["agreement_rate"] <= 1.0
+    assert "classes" in body and "TRANSITION" in body["classes"]
+    assert "per_class" in body and body["macro_f1"] is not None
+    assert 0.0 <= body["false_trend_rate"] <= 1.0
+    assert 0.0 <= body["false_sideways_rate"] <= 1.0
+    assert "boundaries" in body and "duration_disagreement_minutes" in body
+
+
+def test_history_outcomes_endpoint(hist_client, hist_token, history_setup):
+    _, run_id, _ = history_setup
+    h = {"Authorization": f"Bearer {hist_token}"}
+    r = hist_client.get(f"/api/v1/history/runs/{run_id}/stats/outcomes", headers=h)
+    assert r.status_code == 200, r.text[:300]
+    body = r.json()
+    assert body["horizons"] == [12, 48, 96]
+    keys = list(body["per_regime"].keys())
+    assert any(k.startswith("ai_regime:") for k in keys)
+    assert any(k.startswith("reference_regime:") for k in keys)
+    first = body["per_regime"][keys[0]]["12"]
+    assert "mean_fwd_return" in first and "win_rate_pct" in first and "pct_in_range" in first
+
+
+def test_history_bars_include_reference(hist_client, hist_token, history_setup):
+    _, run_id, _ = history_setup
+    h = {"Authorization": f"Bearer {hist_token}"}
+    r = hist_client.get(f"/api/v1/history/runs/{run_id}/bars?limit=50", headers=h)
+    assert r.status_code == 200
+    bars = r.json()["bars"]
+    assert len(bars) > 0
+    b = bars[-1]
+    for key in ("reference_regime", "reference_reason", "di_gap", "ema_slope",
+                "ref_channel_high", "ref_channel_low", "ref_displacement"):
+        assert key in b, f"missing {key} in bars response"
+    assert b["reference_regime"] in ("TREND_UP", "TREND_DOWN", "SIDEWAYS", "TRANSITION",
+                                     "HIGH_VOLATILITY", "UNKNOWN")

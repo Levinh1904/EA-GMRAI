@@ -454,3 +454,170 @@ def compare_vs_reference(bars: pd.DataFrame, labels: pd.Series) -> dict:
         "false_trend_rate": false_trend_rate(lab, scored.reindex(idx)),
         "detection": detection_metrics(lab, scored.reindex(idx)),
     }
+
+
+# ---------------------------------------------------------------- AI vs Reference
+
+def compare_ai_vs_reference(bars: pd.DataFrame, boundary_tol_bars: int = 2) -> dict:
+    """Compare the AI operational regime with the independent Reference
+    classification — full class preservation (NO mapping to SIDEWAYS).
+
+    This measures AGREEMENT with the reference engine (itself a research
+    ruleset), NOT predictive accuracy.
+    """
+    if "reference_regime" not in bars.columns:
+        raise ValueError("bars lack reference_regime column")
+    df = bars.dropna(subset=["regime", "reference_regime"])
+    ai = np.asarray(df["regime"])
+    ref = np.asarray(df["reference_regime"])
+
+    classes = sorted(set(ai) | set(ref))
+    confusion = {a: {b: int(((ai == a) & (ref == b)).sum()) for b in classes} for a in classes}
+    agree = int((ai == ref).sum())
+    n = len(df)
+
+    per_class = {}
+    for c in classes:
+        tp = int(((ai == c) & (ref == c)).sum())
+        fp = int(((ai == c) & (ref != c)).sum())
+        fn = int(((ai != c) & (ref == c)).sum())
+        precision = tp / (tp + fp) if (tp + fp) else None
+        recall = tp / (tp + fn) if (tp + fn) else None
+        f1 = (2 * precision * recall / (precision + recall)) if (precision and recall) else None
+        per_class[c] = {
+            "precision": round(precision, 4) if precision is not None else None,
+            "recall": round(recall, 4) if recall is not None else None,
+            "f1": round(f1, 4) if f1 is not None else None,
+            "support": int((ref == c).sum()),
+        }
+    macro_f1 = round(float(np.mean([per_class[c]["f1"] for c in classes if per_class[c]["f1"] is not None])), 4) \
+        if any(per_class[c]["f1"] is not None for c in classes) else None
+
+    trend_set = {"TREND_UP", "TREND_DOWN"}
+    ai_trend = np.isin(ai, list(trend_set))
+    ref_trend = np.isin(ref, list(trend_set))
+    false_trend = float((ai_trend & ~ref_trend).sum() / max(ai_trend.sum(), 1)) if ai_trend.sum() else 0.0
+    ai_side = ai == "SIDEWAYS"
+    false_side = float((ai_side & ref_trend).sum() / max(ai_side.sum(), 1)) if ai_side.sum() else 0.0
+    ref_side = ref == "SIDEWAYS"
+    missed_side = float((ai_trend & ref_side).sum() / max(ref_side.sum(), 1)) if ref_side.sum() else 0.0
+
+    # trend detection delay: AI trend vs reference trend windows
+    from app.ml.evaluation import detection_metrics
+
+    ref_series = pd.Series(ref)
+    ai_series = pd.Series(ai)
+    delay = detection_metrics(ref_series, ai_series)
+
+    # segment boundary disagreement (run-length boundaries, tol in bars)
+    def boundaries(seq):
+        bounds = []
+        for i in range(1, len(seq)):
+            if seq[i] != seq[i - 1]:
+                bounds.append(i)
+        return bounds
+
+    ai_bounds, ref_bounds = boundaries(ai), boundaries(ref)
+    matched, missed, extra = 0, 0, 0
+    dists = []
+    used = [False] * len(ai_bounds)
+    for rb in ref_bounds:
+        best, best_d = None, None
+        for j, ab in enumerate(ai_bounds):
+            if used[j]:
+                continue
+            d = abs(ab - rb)
+            if d <= boundary_tol_bars and (best_d is None or d < best_d):
+                best, best_d = j, d
+        if best is None:
+            missed += 1
+        else:
+            matched += 1
+            used[best] = True
+            dists.append(best_d)
+    extra = len(ai_bounds) - matched
+
+    # duration disagreement on matched boundary intervals (per reference regime)
+    def run_intervals(seq):
+        ivs, start = [], 0
+        for i in range(1, len(seq) + 1):
+            if i == len(seq) or seq[i] != seq[i - 1]:
+                ivs.append((start, i, seq[i - 1]))
+                start = i
+        return ivs
+
+    ai_ivs, ref_ivs = run_intervals(ai), run_intervals(ref)
+    dur_diffs: dict[str, list[float]] = defaultdict(list)
+    ai_by_start = {s: (s, e) for s, e, _ in ai_ivs}
+    for rs, re_, rc in ref_ivs:
+        if rs in ai_by_start:
+            ae = ai_by_start[rs][1]
+            diff = abs((re_ - rs) - (ae - rs)) * 15  # bars -> minutes (M15)
+            dur_diffs[rc].append(diff)
+    duration_disagreement = {
+        c: {
+            "n_intervals": len(v),
+            "mean_abs_diff_minutes": round(float(np.mean(v)), 1) if v else None,
+        }
+        for c, v in sorted(dur_diffs.items())
+    }
+
+    return {
+        "note": (
+            "Reference engine is an independent RULE-BASED classifier (research thresholds, "
+            "versioned). This report measures AGREEMENT with the reference — it is not "
+            "predictive accuracy and the reference itself is not ground truth."
+        ),
+        "overlap_bars": n,
+        "agreement_rate": round(agree / n, 4) if n else None,
+        "classes": classes,
+        "confusion_counts": confusion,
+        "per_class": per_class,
+        "macro_f1": macro_f1,
+        "false_trend_rate": round(false_trend, 4),
+        "false_sideways_rate": round(false_side, 4),
+        "missed_sideways_rate": round(missed_side, 4),
+        "detection": delay,
+        "boundaries": {
+            "tolerance_bars": boundary_tol_bars,
+            "ai_boundaries": len(ai_bounds),
+            "reference_boundaries": len(ref_bounds),
+            "matched": matched,
+            "missed": missed,
+            "extra": extra,
+            "mean_abs_distance_bars": round(float(np.mean(dists)), 2) if dists else None,
+        },
+        "duration_disagreement_minutes": duration_disagreement,
+    }
+
+
+def outcome_summary(bars: pd.DataFrame, outcomes_df: pd.DataFrame) -> dict:
+    """Aggregate future outcomes per regime label (AI and Reference) per horizon."""
+    if len(outcomes_df) == 0 or len(bars) == 0:
+        return {"error": "no outcome data"}
+    bars_idx = pd.Series(bars["regime"].values, index=bars.index)
+    ref_idx = pd.Series(bars["reference_regime"].values, index=bars.index)
+    merged = outcomes_df.join(bars_idx.rename("ai_regime"), how="left")
+    merged = merged.join(ref_idx.rename("reference_regime"), how="left")
+    merged = merged[merged["ai_regime"].notna()]
+
+    horizon_cols = sorted({c.rsplit("_", 1)[1] for c in merged.columns if c.startswith("fwd_return_")}, key=int)
+    out = {"horizons": {h: {"bars": int(h)} for h in horizon_cols}, "per_regime": {}}
+    for basis in ("ai_regime", "reference_regime"):
+        for regime, grp in merged.groupby(basis):
+            stats = {}
+            for h in horizon_cols:
+                fwd = grp[f"fwd_return_{h}"]
+                stats[h] = {
+                    "n": int(len(fwd)),
+                    "mean_fwd_return": round(float(fwd.mean()), 3),
+                    "win_rate_pct": round(100.0 * float((fwd > 0).mean()), 1),
+                    "mean_mfe": round(float(grp[f"mfe_{h}"].mean()), 3),
+                    "mean_mae": round(float(grp[f"mae_{h}"].mean()), 3),
+                    "pct_up": round(100.0 * float((grp[f"direction_{h}"] == "UP").mean()), 1),
+                    "pct_down": round(100.0 * float((grp[f"direction_{h}"] == "DOWN").mean()), 1),
+                    "pct_flat": round(100.0 * float((grp[f"direction_{h}"] == "FLAT").mean()), 1),
+                    "pct_in_range": round(100.0 * float(grp[f"in_range_{h}"].mean()), 1),
+                }
+            out["per_regime"][f"{basis}:{regime}"] = stats
+    return out
