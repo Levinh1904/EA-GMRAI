@@ -34,14 +34,20 @@
   Market với 2 biểu đồ Plotly render, AI Regime với posterior/engine params/
   state mapping) — banner DEMO + cảnh báo stale hoạt động đúng.
 
-## 2.5. Module Historical Regime Analyzer (mới)
+## 2.5. Module Historical Market Regime Analyzer — HOÀN THÀNH (v0.2.0)
 
-- Backend hoàn chỉnh: schema (3 bảng), engine causal, 7 nhóm thống kê,
-  compare, export CSV/XLSX/PDF, 17 tests (101 tổng) — xem docs/HISTORY_MODULE.md.
-- Đã chạy trên **dữ liệu FTMO thật 1 năm** (run #1: 23.545 nến M15, 2.209 segments;
-  SIDEWAYS 80.2%, Early Trend ~69.5% thành công, delay ~3.7 nến M15).
-- Dữ liệu thật từ collector đang chảy về (99.656 nến ftmo_mt5).
-- Frontend trang /history (10 tabs): đang build bởi subagent.
+- Backend: schema (3 bảng + 2 migrations), engine causal (truncation-invariance
+  test chống lookahead), 7 nhóm thống kê, compare, export CSV/XLSX/PDF,
+  API `/api/v1/history/*` — 102 tests xanh toàn suite.
+- Frontend: trang `/history` 10 tabs (Timeline zoomable + regime strip,
+  Trends, Sideways, Early Trend, Segments, Transition Matrix, Multi-TF,
+  Compare, Reports) — build xanh, QA trình duyệt thật + 36 check tự động.
+- Đã chạy trên **dữ liệu FTMO-Demo thật 1 năm** (run #1: 23.545 nến M15,
+  2.209 segments; SIDEWAYS 80.2%; Early Trend ~69.5% thành công, delay ~3.7
+  nến M15; 80 breakouts/7 false). Chi tiết: docs/HISTORY_MODULE.md.
+- 2 bug backend do QA phát hiện đã sửa + regression tests (periods M/Q/Y,
+  xlsx bars tz-naive).
+- Dữ liệu thật từ collector đang chảy về liên tục (99.656 nến ftmo_mt5).
 
 ## 3. Blocker còn lại (cần người dùng)
 
