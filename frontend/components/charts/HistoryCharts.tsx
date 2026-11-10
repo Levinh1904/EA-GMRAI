@@ -4,7 +4,7 @@
 // All are rendered client-side only (imported via next/dynamic with ssr:false).
 
 import { useMemo } from 'react';
-import Plot from 'react-plotly.js';
+import Plot from '@/components/charts/Plotly';
 import type { Config, Data, Layout, Shape } from 'plotly.js';
 import type { HistoryBar, HistorySegment, PeriodRow } from '@/lib/types';
 import { regimeColor, regimeLabel } from '@/lib/regime';
@@ -30,6 +30,15 @@ const BASE_CONFIG: Config = {
   displaylogo: false,
   scrollZoom: false,
   modeBarButtonsToRemove: ['lasso2d', 'select2d', 'autoScale2d'],
+};
+
+// Timeline gets full zoom/pan controls: wheel zoom + drag zoom + modebar buttons.
+const TIMELINE_CONFIG: Config = {
+  responsive: true,
+  displaylogo: false,
+  scrollZoom: true,
+  doubleClick: 'reset+autosize',
+  modeBarButtons: [['zoom2d', 'pan2d', 'zoomIn2d', 'zoomOut2d', 'resetScale2d']],
 };
 
 // ---------- Bar chart ----------
@@ -393,7 +402,7 @@ export function TimelineChart({
       plot_bgcolor: BG,
       font: { color: FONT, size: 11 },
       margin: { l: 8, r: 62, t: 8, b: 46 },
-      hovermode: 'x',
+      // NOTE: hovermode 'x' breaks candlestick rendering (plotly.js bug) — keep default.
       showlegend: true,
       legend: { orientation: 'h', y: 1.02, x: 0, font: { size: 11 } },
       uirevision: 'history-timeline',
@@ -410,6 +419,7 @@ export function TimelineChart({
         side: 'right',
         gridcolor: GRID,
         tickformat: ',.1f',
+        fixedrange: true, // chỉ zoom trục thời gian; giá tự fit
       },
       yaxis2: {
         domain: [0.03, 0.2],
@@ -443,7 +453,8 @@ export function TimelineChart({
     <Plot
       data={traces}
       layout={layout}
-      config={BASE_CONFIG}
+      config={TIMELINE_CONFIG}
+      revision={sampled.length + (segments.length << 20)}
       style={{ width: '100%', height }}
       useResizeHandler
       onClick={handleClick}

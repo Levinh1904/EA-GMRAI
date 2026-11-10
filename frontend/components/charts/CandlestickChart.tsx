@@ -1,6 +1,6 @@
 'use client';
 
-import Plot from 'react-plotly.js';
+import Plot from '@/components/charts/Plotly';
 import type { Config, Data, Layout } from 'plotly.js';
 import type { Candle, Regime } from '@/lib/types';
 import { regimeColor } from '@/lib/regime';

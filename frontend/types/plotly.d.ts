@@ -169,3 +169,8 @@ declare module 'plotly.js' {
     [key: string]: unknown;
   }
 }
+
+declare module 'plotly.js/dist/plotly.js' {
+  const Plotly: object;
+  export default Plotly;
+}

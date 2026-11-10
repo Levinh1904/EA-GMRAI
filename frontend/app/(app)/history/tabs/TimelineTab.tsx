@@ -27,6 +27,14 @@ const DENSITY_OPTIONS = [
   { value: '8', label: '1/8 nến' },
 ];
 
+const RANGE_PRESETS: { label: string; days: number | null }[] = [
+  { label: '1 tháng', days: 30 },
+  { label: '3 tháng', days: 90 },
+  { label: '6 tháng', days: 180 },
+  { label: '1 năm', days: 365 },
+  { label: 'Toàn bộ', days: null },
+];
+
 interface LoadState<T> {
   loading: boolean;
   error: string | null;
@@ -44,7 +52,8 @@ export default function TimelineTab({ run, runId }: { run: HistoryRun; runId: nu
   });
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [focusRange, setFocusRange] = useState<[string, string] | null>(null);
-  const [density, setDensity] = useState<string>('1');
+  const [activePreset, setActivePreset] = useState<string>('Toàn bộ');
+  const [density, setDensity] = useState<string>('2');
   const hmmStateMap = useHmmStateMap(run.hmm_model_version_id);
 
   useEffect(() => {
@@ -55,7 +64,7 @@ export default function TimelineTab({ run, runId }: { run: HistoryRun; runId: nu
       let offset = 0;
       try {
         for (;;) {
-          const resp = await api.historyBars(runId, 1000, offset);
+          const resp = await api.historyBars(runId, 5000, offset);
           if (cancelled) return;
           collected.push(...resp.bars);
           setBars({ loading: true, error: null, items: collected, total: resp.total });
@@ -117,6 +126,7 @@ export default function TimelineTab({ run, runId }: { run: HistoryRun; runId: nu
 
   function selectSegment(seg: HistorySegment | null) {
     setSelectedId(seg ? seg.id : null);
+    setActivePreset('');
     if (seg) {
       const end = new Date(seg.end_ts).getTime();
       const endIso = Number.isNaN(end) ? seg.end_ts : new Date(end + 15 * 60 * 1000).toISOString();
@@ -129,14 +139,39 @@ export default function TimelineTab({ run, runId }: { run: HistoryRun; runId: nu
   const showList = useMemo(() => segments.items.slice(-400), [segments.items]);
   const densityNum = Math.max(1, parseInt(density, 10) || 1);
 
+  function applyRangePreset(label: string, days: number | null) {
+    setActivePreset(label);
+    if (days == null) {
+      setFocusRange(null);
+      return;
+    }
+    const endMs = run.data_end ? new Date(run.data_end).getTime() : Date.now();
+    if (Number.isNaN(endMs)) return;
+    const startMs = endMs - days * 24 * 60 * 60 * 1000;
+    setFocusRange([new Date(startMs).toISOString(), new Date(endMs).toISOString()]);
+  }
+
   return (
     <div className={styles.stack}>
       <Notice tone="info">
-        Biểu đồ nến hiển thị toàn bộ {fmtNum(bars.total, 0)} nến M15 (tăng dần theo thời gian). Dải
-        màu bên dưới là regime vận hành của từng segment (chính xác từng segment, không giảm mẫu).
-        Bấm vào dải regime hoặc một dòng trong danh sách để chọn segment — biểu đồ sẽ tự zoom tới
-        segment đó. Dùng rangeslider ở đáy để thu/phóng và kéo thả để di chuyển.
+        🖱 <b>Lăn chuột</b>: phóng to/thu nhỏ · <b>Kéo chuột</b>: vẽ vùng phóng to · <b>Kéo ngang
+        (kéo biểu đồ)</b>: di chuyển · <b>Nhấp đúp</b>: đặt lại toàn bộ. Dải màu bên dưới là regime
+        của từng segment (chính xác tuyệt đối, không giảm mẫu). Bấm vào dải regime hoặc một dòng
+        trong danh sách để chọn segment — biểu đồ tự zoom tới segment đó.
       </Notice>
+
+      <div className={styles.toolbar} style={{ marginBottom: 10 }}>
+        {RANGE_PRESETS.map((p) => (
+          <Button
+            key={p.label}
+            size="sm"
+            variant={activePreset === p.label ? 'primary' : 'ghost'}
+            onClick={() => applyRangePreset(p.label, p.days)}
+          >
+            {p.label}
+          </Button>
+        ))}
+      </div>
 
       <Card
         title={`Timeline nến + regime — run #${runId}`}
@@ -146,15 +181,28 @@ export default function TimelineTab({ run, runId }: { run: HistoryRun; runId: nu
             : `${fmtNum(bars.items.length, 0)} nến · ${fmtNum(segments.items.length, 0)} segments · nguồn: ${run.data_source ?? '—'}`
         }
         right={
-          <Segmented options={DENSITY_OPTIONS} value={density} onChange={setDensity} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
+            <Segmented options={DENSITY_OPTIONS} value={density} onChange={setDensity} />
+            <span className={styles.muted} style={{ fontSize: 11 }}>
+              Giảm mẫu giúp zoom mượt — dải regime vẫn chính xác từng nến
+            </span>
+          </div>
         }
       >
-        {bars.loading && bars.items.length === 0 && <Loading label="Đang tải toàn bộ nến (phân trang)…" />}
+        {bars.loading && (
+          <Loading
+            label={
+              bars.items.length > 0
+                ? `Đang tải toàn bộ nến: ${fmtNum(bars.items.length, 0)} / ${bars.total ? fmtNum(bars.total, 0) : '…'}…`
+                : 'Đang tải toàn bộ nến (phân trang)…'
+            }
+          />
+        )}
         {bars.error && bars.items.length === 0 && <ErrorState error={bars.error} />}
         {!bars.loading && !bars.error && bars.items.length === 0 && (
           <ErrorState title="Không có dữ liệu nến" error="Run không có bars." />
         )}
-        {bars.items.length > 0 && (
+        {!bars.loading && bars.items.length > 0 && (
           <>
             <div className={styles.chartBox}>
               <TimelineChart

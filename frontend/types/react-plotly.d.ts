@@ -38,3 +38,23 @@ declare module 'react-plotly.js' {
 
   export default class Plot extends React.Component<PlotParams> {}
 }
+
+declare module 'react-plotly.js/factory' {
+  import type { ComponentType } from 'react';
+  import type { Data, Layout, Config } from 'plotly.js';
+  import type { PlotMouseEvent } from 'react-plotly.js';
+  export interface PlotParams {
+    data: Data[];
+    layout?: Partial<Layout>;
+    config?: Partial<Config>;
+    style?: object;
+    className?: string;
+    useResizeHandler?: boolean;
+    revision?: number;
+    onClick?: (event: PlotMouseEvent) => void;
+    onDoubleClick?: () => void;
+  }
+  export default function createPlotlyComponent(
+    plotly: object
+  ): ComponentType<PlotParams>;
+}

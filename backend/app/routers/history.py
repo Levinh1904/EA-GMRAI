@@ -131,9 +131,23 @@ def get_bars(
     db: Session = Depends(get_db),
 ):
     _get_run_or_404(db, run_id)
-    bars = load_run_bars(db, run_id)
-    total = len(bars)
-    page = bars.iloc[offset : offset + limit]
+    from sqlalchemy import func
+
+    from app.models import RegimeHistoryBar
+
+    total = (
+        db.query(func.count(RegimeHistoryBar.id))
+        .filter(RegimeHistoryBar.run_id == run_id)
+        .scalar()
+    ) or 0
+    rows = (
+        db.query(RegimeHistoryBar)
+        .filter(RegimeHistoryBar.run_id == run_id)
+        .order_by(RegimeHistoryBar.ts)
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
     return {
         "run_id": run_id,
         "total": total,
@@ -141,25 +155,25 @@ def get_bars(
         "offset": offset,
         "bars": [
             {
-                "ts": ts.isoformat(),
-                "regime": row["regime"],
-                "confidence": row["confidence"],
-                "permission": row["permission"],
-                "hmm_state": row["hmm_state"],
-                "hmm_posterior": row["hmm_posterior"],
-                "rf_probs": row["rf_probs"],
-                "reason_codes": row["reason_codes"],
-                "open": row["open"],
-                "high": row["high"],
-                "low": row["low"],
-                "close": row["close"],
-                "atr_ratio": row["atr_ratio"],
-                "adx_norm": row["adx_norm"],
-                "efficiency_ratio": row["efficiency_ratio"],
-                "h1_trend_context": row["h1_trend_context"],
-                "m5_momentum": row["m5_momentum"],
+                "ts": ensure_utc(r.ts).isoformat(),
+                "regime": r.regime,
+                "confidence": r.confidence,
+                "permission": r.permission,
+                "hmm_state": r.hmm_state,
+                "hmm_posterior": r.hmm_probs_json,
+                "rf_probs": r.rf_probs_json,
+                "reason_codes": r.reason_codes_json,
+                "open": r.open,
+                "high": r.high,
+                "low": r.low,
+                "close": r.close,
+                "atr_ratio": r.atr_ratio,
+                "adx_norm": r.adx_norm,
+                "efficiency_ratio": r.efficiency_ratio,
+                "h1_trend_context": r.h1_trend_context,
+                "m5_momentum": r.m5_momentum,
             }
-            for ts, row in page.iterrows()
+            for r in rows
         ],
     }
 
