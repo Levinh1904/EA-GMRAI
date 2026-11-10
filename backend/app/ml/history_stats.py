@@ -300,7 +300,7 @@ def transition_matrix(segments: list[dict]) -> dict:
 # ---------------------------------------------------------------- daily/weekly
 
 def period_aggregation(bars: pd.DataFrame, segments: list[dict], period: str = "day") -> dict:
-    freq = {"day": "D", "week": "W-MON", "month": "ME", "quarter": "QE", "year": "YE"}[period]
+    freq = {"day": "D", "week": "W-MON", "month": "M", "quarter": "Q", "year": "Y"}[period]
     b = bars.copy()
     b["bucket"] = b.index.to_period(freq).to_timestamp()
     b["regime_group"] = b["regime"].map(_group_regime)

@@ -22,6 +22,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/', label: 'Tổng quan', icon: 'overview' },
   { href: '/market', label: 'Thị trường trực tiếp', icon: 'market' },
   { href: '/regime', label: 'AI Regime', icon: 'regime' },
+  { href: '/history', label: 'Lịch sử Regime', icon: 'history' },
   { href: '/training', label: 'Trung tâm huấn luyện', icon: 'training' },
   { href: '/backtesting', label: 'Backtesting', icon: 'backtest' },
   { href: '/compare', label: 'So sánh mô hình', icon: 'compare' },

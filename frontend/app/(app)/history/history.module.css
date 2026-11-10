@@ -1,0 +1,227 @@
+/* Styles for the Historical Market Regime Analyzer page (/history). */
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  border-bottom: 1px solid var(--border-soft);
+  margin-bottom: 16px;
+  overflow-x: auto;
+}
+
+.tabBtn {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  padding: 9px 13px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+}
+
+.tabBtn:hover {
+  color: var(--text);
+}
+
+.tabBtnActive {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tabPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.select {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 6px 10px;
+  font-size: 13px;
+  outline: none;
+  font-family: inherit;
+  max-width: 340px;
+}
+
+.select:focus {
+  border-color: var(--accent);
+}
+
+.input {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 6px 10px;
+  font-size: 13px;
+  outline: none;
+  font-family: var(--mono);
+}
+
+.input:focus {
+  border-color: var(--accent);
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.runInfoBar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 9px 12px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.pulse {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--orange);
+  font-size: 12px;
+}
+
+.pulseDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--orange);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.toast {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 70;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  max-width: 440px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+}
+
+.toastDanger {
+  border-left-color: var(--red);
+}
+
+.toastSuccess {
+  border-left-color: var(--green);
+}
+
+.segList {
+  max-height: 430px;
+  overflow-y: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--bg-elev);
+}
+
+.segRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  font-size: 12px;
+  border: none;
+  border-bottom: 1px solid var(--border-soft);
+  cursor: pointer;
+  color: var(--text-muted);
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
+}
+
+.segRow:last-child {
+  border-bottom: none;
+}
+
+.segRow:hover {
+  background: rgba(76, 141, 255, 0.06);
+}
+
+.segRowActive {
+  background: rgba(76, 141, 255, 0.12);
+  color: var(--text);
+}
+
+.segDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.segMeta {
+  margin-left: auto;
+  font-family: var(--mono);
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  font-family: var(--mono);
+}
+
+.signalUp {
+  background: var(--green-soft);
+}
+
+.signalDown {
+  background: var(--red-soft);
+}
+
+.signalSide {
+  background: var(--gray-soft);
+}
+
+.signalNo {
+  background: var(--bg-elev);
+}
+
+.scrollBox {
+  overflow-x: auto;
+}
+
+.stickyHead thead th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  z-index: 1;
+}

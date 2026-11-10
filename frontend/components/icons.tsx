@@ -18,6 +18,14 @@ const ICON_PATHS: Record<string, ReactNode> = {
     </>
   ),
   regime: <polyline points="3 13 7 13 9 6 13 18 16 9 21 12" />,
+  history: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <polyline points="12 7 12 12 15.5 14" />
+      <line x1="3" y1="4" x2="6" y2="4" />
+      <line x1="18" y1="4" x2="21" y2="4" />
+    </>
+  ),
   training: (
     <>
       <line x1="4" y1="7" x2="20" y2="7" />

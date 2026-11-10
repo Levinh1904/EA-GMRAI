@@ -350,6 +350,10 @@ def export(
             return Response(buf.getvalue(), media_type="text/csv",
                             headers={"Content-Disposition": f"attachment; filename=gmrai_{scope}_{run_id}.csv"})
         if format == "xlsx":
+            if "ts" in df.columns:
+                # openpyxl cannot write tz-aware datetimes — store naive UTC
+                df = df.copy()
+                df["ts"] = pd.to_datetime(df["ts"], utc=True).dt.tz_localize(None)
             out = io.BytesIO()
             with pd.ExcelWriter(out, engine="openpyxl") as writer:
                 df.to_excel(writer, index=False, sheet_name=scope)

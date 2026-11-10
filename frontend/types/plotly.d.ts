@@ -15,6 +15,7 @@ declare module 'plotly.js' {
 
   export interface TraceMarker {
     color?: Color | Color[];
+    colors?: Color[];
     size?: number | number[];
     line?: { color?: Color; width?: number };
     symbol?: string;
@@ -56,11 +57,39 @@ declare module 'plotly.js' {
     xaxis?: string;
     yaxis?: string;
     hoverinfo?: string;
+    hovertemplate?: string;
+    hovertext?: string[];
+    customdata?: unknown[];
+    legendgroup?: string;
     opacity?: number;
-    text?: string[];
+    text?: string[] | string[][];
     textposition?: string;
     fill?: string;
     connectgaps?: boolean;
+    showlegend?: boolean;
+    // Bar
+    orientation?: string;
+    // Pie
+    labels?: string[];
+    values?: number[];
+    hole?: number;
+    textinfo?: string;
+    texttemplate?: string;
+    // Heatmap
+    z?: Array<Array<number | null>>;
+    colorscale?: string | Array<[number, string]>;
+    showscale?: boolean;
+    colorbar?: {
+      title?: { text?: string };
+      thickness?: number;
+      tickfont?: { size?: number; color?: string };
+      outlinewidth?: number;
+    };
+    hoverongaps?: boolean;
+    xgap?: number;
+    ygap?: number;
+    zauto?: boolean;
+    hoverlabel?: { bgcolor?: string; bordercolor?: string; font?: { color?: Color } };
   }
 
   export type Data = Trace;
@@ -68,6 +97,9 @@ declare module 'plotly.js' {
   export interface AxisRangeSlider {
     visible?: boolean;
     thickness?: number;
+    bgcolor?: Color;
+    bordercolor?: Color;
+    borderwidth?: number;
   }
 
   export interface Axis {
@@ -86,6 +118,9 @@ declare module 'plotly.js' {
     title?: { text?: string; font?: { color?: Color; size?: number } };
     tickfont?: { size?: number; color?: Color };
     fixedrange?: boolean;
+    automargin?: boolean;
+    overlaying?: string;
+    autorange?: string;
   }
 
   export interface Shape {

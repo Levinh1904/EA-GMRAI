@@ -137,6 +137,12 @@ def test_history_exports(hist_client, hist_token, history_setup):
     ws = wb["segments"]
     assert ws.max_row > 10
 
+    # xlsx bars: tz-aware datetimes must be exported as naive UTC
+    r = hist_client.get(f"/api/v1/history/runs/{run_id}/export?format=xlsx&scope=bars", headers=h)
+    assert r.status_code == 200, r.text[:300]
+    wb2 = load_workbook(io.BytesIO(r.content))
+    assert wb2["bars"].max_row > 100
+
     r = hist_client.get(f"/api/v1/history/runs/{run_id}/export?format=pdf&scope=report", headers=h)
     assert r.status_code == 200
     assert r.content[:4] == b"%PDF"

@@ -6,23 +6,39 @@ import type {
   BacktestRun,
   BacktestStartRequest,
   CandlesResponse,
+  CompareVsReferenceResponse,
+  CompareVsRunResponse,
   DashboardStats,
+  DurationStatsResponse,
+  EarlyTrendStatsResponse,
+  HistoryBar,
+  HistoryBarsResponse,
+  HistoryRunDetail,
+  HistoryRunListResponse,
+  HistorySegment,
+  HistorySegmentsResponse,
   IngestStatusResponse,
   LoginResponse,
   MarketLatest,
   ModelDetail,
   ModelListResponse,
   ModelStatus,
+  MultiTfStatsResponse,
+  PeriodsStatsResponse,
   QualityReportResponse,
   QualityRunResponse,
   RegimeHistoryResponse,
   RegimeLatest,
   ScheduleResponse,
+  ScheduleRunResponse,
+  SidewaysStatsResponse,
   SystemLogsResponse,
   SystemStatus,
   Timeframe,
   TrainingRunListResponse,
   TrainingStartRequest,
+  TransitionsStatsResponse,
+  TrendsStatsResponse,
   User,
 } from './types';
 
@@ -168,6 +184,56 @@ export const api = {
   // System
   systemStatus: () => apiFetch<SystemStatus>('/system/status'),
   systemLogs: (limit = 100) => apiFetch<SystemLogsResponse>(`/system/logs?limit=${limit}`),
+
+  // History (Historical Market Regime Analyzer)
+  historyRuns: (limit = 20) => apiFetch<HistoryRunListResponse>(`/history/runs?limit=${limit}`),
+  historyRun: (runId: number) => apiFetch<HistoryRunDetail>(`/history/runs/${runId}`),
+  historyBars: (runId: number, limit = 1000, offset = 0) =>
+    apiFetch<HistoryBarsResponse>(`/history/runs/${runId}/bars?limit=${limit}&offset=${offset}`),
+  historySegments: (
+    runId: number,
+    params: { limit?: number; offset?: number; regime?: string; min_duration?: number; max_duration?: number } = {}
+  ) => {
+    const q = new URLSearchParams();
+    q.set('limit', String(params.limit ?? 100));
+    q.set('offset', String(params.offset ?? 0));
+    if (params.regime) q.set('regime', params.regime);
+    if (params.min_duration != null) q.set('min_duration', String(params.min_duration));
+    if (params.max_duration != null) q.set('max_duration', String(params.max_duration));
+    return apiFetch<HistorySegmentsResponse>(`/history/runs/${runId}/segments?${q.toString()}`);
+  },
+  historySegment: (runId: number, segId: number) =>
+    apiFetch<HistorySegment>(`/history/runs/${runId}/segments/${segId}`),
+  historyDurationStats: (runId: number) =>
+    apiFetch<DurationStatsResponse>(`/history/runs/${runId}/stats/duration`),
+  historyTrendsStats: (runId: number) =>
+    apiFetch<TrendsStatsResponse>(`/history/runs/${runId}/stats/trends`),
+  historySidewaysStats: (runId: number) =>
+    apiFetch<SidewaysStatsResponse>(`/history/runs/${runId}/stats/sideways`),
+  historyEarlyTrendStats: (runId: number, window = 12) =>
+    apiFetch<EarlyTrendStatsResponse>(`/history/runs/${runId}/stats/early_trend?window=${window}`),
+  historyTransitionsStats: (runId: number) =>
+    apiFetch<TransitionsStatsResponse>(`/history/runs/${runId}/stats/transitions`),
+  historyPeriodsStats: (runId: number, period: string) =>
+    apiFetch<PeriodsStatsResponse>(`/history/runs/${runId}/stats/periods?period=${period}`),
+  historyMultiTfStats: (runId: number) =>
+    apiFetch<MultiTfStatsResponse>(`/history/runs/${runId}/stats/multi_tf`),
+  historyCompareRun: (runId: number, vsRunId: number) =>
+    apiFetch<CompareVsRunResponse>(`/history/runs/${runId}/compare?vs_run_id=${vsRunId}`),
+  historyCompareReference: (runId: number) =>
+    apiFetch<CompareVsReferenceResponse>(`/history/runs/${runId}/compare?vs_reference=true`),
+  startHistoryRun: (params: { regenerate?: boolean; symbol?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (params.regenerate) q.set('regenerate', 'true');
+    if (params.symbol) q.set('symbol', params.symbol);
+    const qs = q.toString();
+    return request<ScheduleRunResponse>(`/history/run${qs ? `?${qs}` : ''}`, { method: 'POST' });
+  },
+  exportHistory: (runId: number, format: string, scope: string, filename: string) =>
+    downloadFile(
+      `/history/runs/${runId}/export?format=${encodeURIComponent(format)}&scope=${encodeURIComponent(scope)}`,
+      filename
+    ),
 };
 
 /** Download a model artifact/ONNX file through the browser (Bearer-authenticated). */

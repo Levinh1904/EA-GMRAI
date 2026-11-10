@@ -97,13 +97,19 @@ export function Badge({
   tone = 'neutral',
   children,
   title,
+  style,
 }: {
   tone?: Tone | 'purple' | 'teal' | 'yellow';
   children: ReactNode;
   title?: string;
+  style?: CSSProperties;
 }) {
   return (
-    <span className={`${styles.badge} ${styles[`tone${cap(tone)}`] ?? ''}`} title={title}>
+    <span
+      className={`${styles.badge} ${styles[`tone${cap(tone)}`] ?? ''}`}
+      title={title}
+      style={style}
+    >
       {children}
     </span>
   );

@@ -241,3 +241,14 @@ def test_trend_analysis_strength():
     dist = out["strength"]["distribution"]
     assert dist["TREND_UP|strong"] == 1 and dist["TREND_UP|weak"] == 1
     assert dist["TREND_DOWN|medium"] == 2
+
+
+def test_period_aggregation_month_quarter_year():
+    ts = pd.to_datetime(
+        ["2026-01-05T23:30:00Z", "2026-01-31T23:45:00Z", "2026-02-01T00:00:00Z", "2026-03-01T00:15:00Z"]
+    ).tz_convert("UTC")
+    bars = _bars_df(["TREND_UP"] * 4).set_index(ts).loc[ts]
+    segs = build_segments(bars, 900)
+    for p in ("month", "quarter", "year"):
+        out = period_aggregation(bars, segs, p)
+        assert out["period"] == p and len(out["rows"]) >= 1

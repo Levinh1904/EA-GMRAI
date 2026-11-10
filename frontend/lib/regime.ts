@@ -9,6 +9,7 @@ export const REGIME_COLORS: Record<string, string> = {
   TRANSITION: '#a855f7',
   EARLY_TREND_UP: '#14b8a6',
   EARLY_TREND_DOWN: '#14b8a6',
+  EARLY_TREND: '#14b8a6',
   UNKNOWN: '#4b5563',
 };
 
@@ -20,6 +21,7 @@ export const REGIME_LABELS: Record<string, string> = {
   TRANSITION: 'Chuyển tiếp',
   EARLY_TREND_UP: 'Tăng sớm',
   EARLY_TREND_DOWN: 'Giảm sớm',
+  EARLY_TREND: 'Tín hiệu sớm',
   UNKNOWN: 'Không xác định',
 };
 
@@ -119,3 +121,38 @@ export function statusTone(status: string | null | undefined): Tone {
 export function isEarlyTrend(regime: string | null | undefined): boolean {
   return regime === 'EARLY_TREND_UP' || regime === 'EARLY_TREND_DOWN';
 }
+
+// Multi-timeframe agreement buckets (feature-based signals, not AI regimes).
+
+export const AGREEMENT_COLORS: Record<string, string> = {
+  CONSENSUS_UP: '#22c55e',
+  CONSENSUS_DOWN: '#ef4444',
+  CONFLICT_M5: '#f59e0b',
+  CONFLICT_H1: '#facc15',
+  CONFLICT_BOTH: '#a855f7',
+  NEUTRAL: '#8b98a9',
+};
+
+export const AGREEMENT_LABELS: Record<string, string> = {
+  CONSENSUS_UP: 'Đồng thuận tăng',
+  CONSENSUS_DOWN: 'Đồng thuận giảm',
+  CONFLICT_M5: 'Xung đột M5',
+  CONFLICT_H1: 'Xung đột H1',
+  CONFLICT_BOTH: 'Xung đột cả hai',
+  NEUTRAL: 'Trung lập',
+};
+
+export function agreementColor(key: string): string {
+  return AGREEMENT_COLORS[key] ?? '#4b5563';
+}
+
+export function agreementLabel(key: string): string {
+  return AGREEMENT_LABELS[key] ?? key;
+}
+
+export const TF_SIGNAL_COLORS: Record<string, string> = {
+  UP: '#22c55e',
+  DOWN: '#ef4444',
+  SIDEWAYS: '#8b98a9',
+  NODATA: '#4b5563',
+};
