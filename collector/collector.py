@@ -16,7 +16,7 @@ from api_client import ApiClient, ApiClientError
 from config import load_config
 from data_sync import CheckpointStore, run_sync
 from logger import setup_logging
-from mt5_client import Mt5Client, Mt5Unavailable
+from mt5_client import Mt5Client, Mt5FetchError, Mt5Unavailable
 
 logger = logging.getLogger("gmrai.collector")
 
@@ -35,6 +35,31 @@ def parse_args(argv=None):
                     help="reset checkpoints and backfill N days of history")
     ap.add_argument("--once", action="store_true", help="run one sync cycle and exit")
     return ap.parse_args(argv)
+
+
+def make_chunked_fetch(mt5_client, chunk_days: int = 30):
+    """Fetch a range in chunks so a single oversized copy_rates_range never
+    kills the sync. On Mt5FetchError the window is halved down to 6 hours."""
+    from datetime import timedelta
+
+    def fetch(symbol, timeframe, start, end):
+        out: list[dict] = []
+        window = timedelta(days=chunk_days)
+        cur = start
+        while cur < end:
+            nxt = min(cur + window, end)
+            try:
+                out.extend(mt5_client.fetch_range(timeframe, cur, nxt))
+            except Mt5FetchError as e:
+                if window <= timedelta(hours=6):
+                    raise
+                window = window / 2
+                logger.warning("Shrinking fetch window to %s after: %s", window, e)
+                continue  # retry same segment with a smaller window
+            cur = nxt
+        return out
+
+    return fetch
 
 
 def main(argv=None) -> int:
@@ -60,6 +85,7 @@ def main(argv=None) -> int:
     )
     api = ApiClient(cfg.api_url, cfg.api_key, cfg.collector_id)
     checkpoint = CheckpointStore(cfg.checkpoint_dir)
+    chunked_fetch = make_chunked_fetch(mt5_client)
 
     connected = False
     retry_delay = 10
@@ -73,16 +99,21 @@ def main(argv=None) -> int:
                 logger.info("MT5 connection established for %s", cfg.symbol)
 
             for tf in cfg.timeframes:
-                result = run_sync(
-                    lambda sym, tf, s, e: mt5_client.fetch_range(tf, s, e),
-                    api.send_candles,
-                    checkpoint,
-                    cfg.symbol,
-                    tf,
-                    now=__import__("datetime").datetime.now(timezone.utc),
-                    resync_bars=cfg.resync_bars,
-                    history_days=cfg.backfill_days,
-                )
+                try:
+                    result = run_sync(
+                        chunked_fetch,
+                        api.send_candles,
+                        checkpoint,
+                        cfg.symbol,
+                        tf,
+                        now=__import__("datetime").datetime.now(timezone.utc),
+                        resync_bars=cfg.resync_bars,
+                        history_days=cfg.backfill_days,
+                    )
+                except Mt5FetchError as e:
+                    # Data request rejected — connection is fine, skip this TF.
+                    logger.error("skip %s: %s", tf, e)
+                    continue
                 logger.info(
                     "sync %s: fetched=%d closed=%d sent=%d inserted=%d updated=%d gaps=%d",
                     tf, result["fetched"], result["closed"], result["sent"],

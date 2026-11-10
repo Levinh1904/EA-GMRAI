@@ -26,6 +26,10 @@ class Mt5Unavailable(RuntimeError):
     pass
 
 
+class Mt5FetchError(RuntimeError):
+    """copy_rates_* rejected the request (params/history issue) — connection is fine."""
+
+
 class Mt5Client:
     def __init__(self, symbol: str, mt5_path: str = "", login: int | None = None,
                  password: str = "", server: str = ""):
@@ -73,6 +77,9 @@ class Mt5Client:
             raise Mt5Unavailable(
                 f"Symbol {self.symbol} not visible — add it to Market Watch in MT5"
             )
+        # Subscribe in Market Watch so history requests work reliably.
+        if not mt5.symbol_select(self.symbol, True):
+            logger.warning("symbol_select(%s) failed: %s", self.symbol, mt5.last_error())
 
     def shutdown(self) -> None:
         mt5.shutdown()
@@ -85,11 +92,16 @@ class Mt5Client:
             raise ValueError(f"Unsupported timeframe {timeframe}")
         if start.tzinfo is None or end.tzinfo is None:
             raise ValueError("start/end must be timezone-aware (UTC)")
+        start = start.replace(microsecond=0)
+        end = end.replace(microsecond=0)
         rates = mt5.copy_rates_range(self.symbol, TIMEFRAMES[timeframe], start, end)
         if rates is None:
             err = mt5.last_error()
             if err and err[0] != 0:
-                raise Mt5Unavailable(f"copy_rates_range failed: {err}")
+                raise Mt5FetchError(
+                    f"copy_rates_range({timeframe}, {start.isoformat()}, {end.isoformat()})"
+                    f" failed: {err}"
+                )
             return []
         bars = []
         for row in rates:
