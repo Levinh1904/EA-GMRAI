@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime
 from typing import Any
 
 import requests
@@ -18,6 +19,16 @@ BASE_DELAY_SECONDS = 5.0
 
 class ApiClientError(RuntimeError):
     pass
+
+
+def _json_safe(candle: dict) -> dict:
+    """Convert datetime values to ISO strings (JSON cannot carry datetimes)."""
+    out = dict(candle)
+    for key in ("ts",):
+        value = out.get(key)
+        if isinstance(value, datetime):
+            out[key] = value.isoformat()
+    return out
 
 
 class ApiClient:
@@ -35,7 +46,7 @@ class ApiClient:
             "X-Collector-ID": self.collector_id,
             "Content-Type": "application/json",
         }
-        payload = {"candles": candles}
+        payload = {"candles": [_json_safe(c) for c in candles]}
         last_err: Exception | None = None
         for attempt in range(1, MAX_ATTEMPTS + 1):
             try:

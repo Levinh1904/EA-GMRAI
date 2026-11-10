@@ -109,6 +109,7 @@ def main(argv=None) -> int:
                         now=__import__("datetime").datetime.now(timezone.utc),
                         resync_bars=cfg.resync_bars,
                         history_days=cfg.backfill_days,
+                        max_batch=cfg.max_batch,
                     )
                 except Mt5FetchError as e:
                     # Data request rejected — connection is fine, skip this TF.

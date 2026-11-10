@@ -135,8 +135,13 @@ def run_sync(
     now: datetime,
     resync_bars: int = 50,
     history_days: int | None = None,
+    max_batch: int = 5000,
 ) -> dict:
-    """One sync cycle for one timeframe. Returns a summary dict."""
+    """One sync cycle for one timeframe. Returns a summary dict.
+
+    Closed bars are sent in chunks of `max_batch` (server enforces its own
+    per-request cap); the checkpoint only advances after ALL chunks succeed.
+    """
     period = timedelta(seconds=period_seconds(timeframe))
     last_ts = checkpoint.load(symbol, timeframe)
     start = plan_fetch_range(last_ts, timeframe, now, resync_bars, history_days)
@@ -156,10 +161,11 @@ def run_sync(
 
     if closed:
         # Never fabricate missing data: gaps are reported, not filled.
-        resp = send_fn(timeframe, closed)
+        for i in range(0, len(closed), max_batch):
+            resp = send_fn(timeframe, closed[i : i + max_batch])
+            result["inserted"] += int(resp.get("inserted", 0))
+            result["updated"] += int(resp.get("updated", 0))
         result["sent"] = len(closed)
-        result["inserted"] = int(resp.get("inserted", 0))
-        result["updated"] = int(resp.get("updated", 0))
         new_last = max(b["ts"] for b in closed)
         checkpoint.save(symbol, timeframe, new_last)
         result["checkpoint"] = new_last.isoformat()

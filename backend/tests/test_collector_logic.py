@@ -138,3 +138,35 @@ def test_run_sync_no_fabrication(tmp_path):
     r = run_sync(fetch_fn, send_fn, ckpt, "XAUUSD", "M15", now, resync_bars=5)
     assert r["gap_count"] == 1
     assert len(sent) == 2  # nothing invented to fill the hole
+
+
+def test_run_sync_chunks_batches(tmp_path):
+    """Large closed sets are sent in batches of max_batch; checkpoint advances once."""
+    now = datetime(2026, 2, 2, 12, 0, tzinfo=timezone.utc)
+    bars = [_bar(now - timedelta(minutes=15 * (i + 1))) for i in range(25)]
+    batches = []
+
+    def fetch_fn(symbol, tf, start, end):
+        return list(bars)
+
+    def send_fn(tf, candles):
+        batches.append(list(candles))
+        return {"inserted": len(candles), "updated": 0}
+
+    ckpt = CheckpointStore(str(tmp_path))
+    r = run_sync(fetch_fn, send_fn, ckpt, "XAUUSD", "M15", now, max_batch=10)
+    assert r["sent"] == 25 and r["inserted"] == 25
+    assert [len(b) for b in batches] == [10, 10, 5]
+
+
+def test_api_client_json_safe():
+    """Datetime values are serialized to ISO strings before sending."""
+    from datetime import datetime as dt
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "collector"))
+    from api_client import _json_safe  # type: ignore
+
+    ts = dt(2026, 2, 2, 12, 0, tzinfo=timezone.utc)
+    out = _json_safe({"ts": ts, "close": 2400.5})
+    assert out["ts"] == "2026-02-02T12:00:00+00:00"
+    assert out["close"] == 2400.5
