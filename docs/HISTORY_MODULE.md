@@ -72,6 +72,29 @@ mở dashboard nhanh với hàng trăm nghìn nến.
 > Các con số phản ánh model hiện tại trên dữ liệu demo 1 năm — là kết quả
 > kiểm định ban đầu, không phải công bố tỷ lệ chính xác của hệ thống.
 
+## 7.5. Reference Engine độc lập + Outcome Evaluator (v0.3)
+
+- `ml/reference_engine.py`: phân loại rule-based CHỈ từ nến đã đóng + chỉ báo
+  tự tính (ADX/±DI, Kaufman ER, ATR ratio, EMA slope/ATR, kênh High/Low 20
+  nến, net displacement) — độc lập cấu trúc với HMM/RF/Operational Engine
+  (AST-tested). Ngưỡng là tham số nghiên cứu, versioned (`ref_v1`, lưu đầy
+  đủ config + created_at theo run) — tái lập được lịch sử.
+- Lưu song song trên mỗi nến M15: AI regime (gốc, immutable) + reference
+  regime + triggered rule + indicator values. Runs không bao giờ bị ghi đè.
+- `ml/outcome.py`: đánh giá tương lai độc lập (12/48/96 nến): fwd return,
+  MFE, MAE, direction, in-range — lưu bảng `outcome_evaluations`; tương lai
+  chỉ để đánh giá, không đổi prediction gốc (test khóa).
+- AI vs Reference: agreement, confusion full-class (KHÔNG map về SIDEWAYS),
+  per-class + macro F1, false trend/sideways/missed-sideways rate, detection
+  delay, boundary disagreement (tol 2 nến), duration disagreement.
+- Kết quả thật (run #3, FTMO 1 năm): agreement 17.9% tổng thể; F1 theo lớp:
+  TREND_UP 0.548, TREND_DOWN 0.520 (reference UNKNOWN/TRANSITION chiếm ~62%
+  số nến — ngưỡng nghiêm ngặt); false trend 21.8%, false sideways 20.8%;
+  boundaries AI 1.958 vs reference 5.176 (960 matched, mean 1.04 nến).
+- Outcomes 12 nến: tín hiệu TREND_UP của cả AI lẫn reference chỉ win ~45-46%
+  trên dữ liệu demo này — minh chứng trung thực rằng model hiện tại chưa
+  có edge trên tài khoản demo, đúng tinh thần "không công bố accuracy".
+
 ## 8. Testing
 
 `backend/tests/test_history.py` (13 tests: segmentation, gap split, stats,

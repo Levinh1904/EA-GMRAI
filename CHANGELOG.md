@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.0] — 2026-11-11
+
+### Independent Reference Regime Engine + AI vs Reference validation
+- `ml/reference_engine.py`: rule-based độc lập (ADX/±DI, Kaufman ER, ATR
+  ratio, EMA slope, kênh High/Low, displacement), labels đầy đủ 6 lớp,
+  thresholds versioned (`ref_v1`) — tái lập lịch sử, independence AST-tested.
+- `ml/outcome.py`: future outcome evaluator (fwd return/MFE/MAE/direction/
+  in-range, horizons 12/48/96) — tương lai chỉ để đánh giá.
+- Storage: `outcome_evaluations` + cột reference trên history bars/runs;
+  prediction gốc không bao giờ bị ghi đè (runs immutable).
+- AI vs Reference metrics: agreement, confusion full-class (không map về
+  SIDEWAYS), per-class + macro F1, false trend/sideways rate, detection
+  delay, boundary disagreement, duration disagreement.
+- API: `stats/vs_reference`, `stats/outcomes`, bars mở rộng reference fields.
+- 13 tests mới (independence, causality/truncation, reproducibility, version
+  snapshot, indicator math, outcomes, metrics) — 115 tests tổng.
+- Chạy thật trên FTMO 1 năm (run #3): kết quả trong docs/HISTORY_MODULE.md.
+
 ## [0.2.0] — 2026-11-11
 
 ### Historical Market Regime Analyzer (module mới)

@@ -110,7 +110,7 @@ endpoint (trừ ingestion dùng `X-API-Key` và health không cần auth).
 | POST | `/history/run` | admin | chạy phân tích lịch sử (job nền) → `{"status","run_id"}` |
 | GET | `/history/runs` | JWT | danh sách runs |
 | GET | `/history/runs/{id}` | JWT | chi tiết run |
-| GET | `/history/runs/{id}/bars?limit&offset` | JWT | nến + regime từng thanh (causal) |
+| GET | `/history/runs/{id}/bars?limit&offset` | JWT | nến + AI regime + **reference regime/reason/indicators** từng thanh (causal) |
 | GET | `/history/runs/{id}/segments?regime&min_duration&max_duration&limit&offset` | JWT | danh sách regime segments |
 | GET | `/history/runs/{id}/segments/{seg_id}` | JWT | chi tiết segment |
 | GET | `/history/runs/{id}/stats/duration` | JWT | thống kê thời lượng mỗi regime |
@@ -120,6 +120,8 @@ endpoint (trừ ingestion dùng `X-API-Key` và health không cần auth).
 | GET | `/history/runs/{id}/stats/transitions` | JWT | ma trận chuyển trạng thái vận hành |
 | GET | `/history/runs/{id}/stats/periods?period=day\|week\|month\|quarter\|year` | JWT | tổng hợp theo chu kỳ |
 | GET | `/history/runs/{id}/stats/multi_tf` | JWT | so sánh M15 regime vs H1 context + M5 timing |
+| GET | `/history/runs/{id}/stats/vs_reference` | JWT | AI vs Reference: agreement, confusion full-class, per-class+macro F1, false trend/sideways rate, detection delay, boundary & duration disagreement |
+| GET | `/history/runs/{id}/stats/outcomes` | JWT | kết quả tương lai (12/48/96 nến) theo từng regime — đánh giá, không đổi prediction |
 | GET | `/history/runs/{id}/compare?vs_run_id=N` | JWT | so sánh 2 runs (agreement, confusion) |
 | GET | `/history/runs/{id}/compare?vs_reference=true` | JWT | đánh giá vs reference labels độc lập |
 | GET | `/history/runs/{id}/export?format=csv\|xlsx\|pdf&scope=segments\|bars\|report` | JWT | xuất CSV/Excel/PDF |
