@@ -33,6 +33,14 @@ const VariantCompareChart = dynamic(() => import('@/components/charts/VariantCom
   loading: () => <Loading label="Đang tải biểu đồ so sánh…" />,
 });
 
+const ModelPerformancePanel = dynamic(
+  () => import('@/components/analytics/ModelPerformancePanel').then((m) => m.ModelPerformancePanel),
+  {
+    ssr: false,
+    loading: () => <Loading label="Đang tải biểu đồ hiệu suất theo thời gian…" />,
+  }
+);
+
 interface NoticeState {
   tone: 'info' | 'warn' | 'danger';
   text: string;
@@ -179,6 +187,8 @@ export default function BacktestingPage() {
       />
 
       {notice && <Notice tone={notice.tone}>{notice.text}</Notice>}
+
+      <ModelPerformancePanel />
 
       <Card
         title="Khởi động backtest mới"

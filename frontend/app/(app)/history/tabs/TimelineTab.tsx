@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { Button, Card, ErrorState, Loading, Notice, Segmented } from '@/components/ui/ui';
-import { api } from '@/lib/api';
 import { fmtNum, fmtPct, fmtUtc } from '@/lib/format';
 import {
   AGREEMENT_NEUTRAL_COLOR,
@@ -14,7 +13,9 @@ import {
 import { useApi } from '@/lib/swr';
 import type { HistoryBar, HistoryRun, HistorySegment, VsReferenceStats } from '@/lib/types';
 import type { DiffStripSegment, RefStripSegment, TimelineStripMode } from '@/components/charts/HistoryCharts';
+import { useAllSegments, useRunBars } from '@/components/charts/TradingChart/useChartData';
 import { useHmmStateMap } from '../shared';
+import { segmentInRange, type HistoryFilters } from '../filters';
 import { BarDetailPanel } from './BarDetailPanel';
 import { SegmentDetailPanel } from './SegmentDetailPanel';
 import styles from '../../pages.module.css';
@@ -50,13 +51,6 @@ const RANGE_PRESETS: { label: string; days: number | null }[] = [
   { label: 'Toàn bộ', days: null },
 ];
 
-interface LoadState<T> {
-  loading: boolean;
-  error: string | null;
-  items: T[];
-  total: number;
-}
-
 /** Group consecutive bars with the same key into client-side strip segments. */
 function groupStripSegments(
   bars: HistoryBar[],
@@ -77,14 +71,17 @@ function groupStripSegments(
   return out;
 }
 
-export default function TimelineTab({ run, runId }: { run: HistoryRun; runId: number }) {
-  const [bars, setBars] = useState<LoadState<HistoryBar>>({ loading: true, error: null, items: [], total: 0 });
-  const [segments, setSegments] = useState<LoadState<HistorySegment>>({
-    loading: true,
-    error: null,
-    items: [],
-    total: 0,
-  });
+export default function TimelineTab({
+  run,
+  runId,
+  filters,
+  onDateRangePreset,
+}: {
+  run: HistoryRun;
+  runId: number;
+  filters: HistoryFilters;
+  onDateRangePreset: (range: { startDate: string; endDate: string } | null) => void;
+}) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedBarTs, setSelectedBarTs] = useState<string | null>(null);
   const [focusRange, setFocusRange] = useState<[string, string] | null>(null);
@@ -93,114 +90,74 @@ export default function TimelineTab({ run, runId }: { run: HistoryRun; runId: nu
   const [stripMode, setStripMode] = useState<TimelineStripMode>('ai');
   const hmmStateMap = useHmmStateMap(run.hmm_model_version_id);
 
+  // Shared (SWR-cached) data: all bars + all segments of the run.
+  const { bars, isLoading: barsLoading, error: barsError } = useRunBars(runId, true);
+  const { segments, isLoading: segLoading, error: segError } = useAllSegments(runId);
+
   // Reference version + config come from the vs_reference report.
   const { data: vsRef } = useApi<VsReferenceStats>(`/history/runs/${runId}/stats/vs_reference`);
 
+  // Global regime mode drives the strip mode (internal selector still works).
   useEffect(() => {
-    let cancelled = false;
-    setBars({ loading: true, error: null, items: [], total: 0 });
-    (async () => {
-      const collected: HistoryBar[] = [];
-      let offset = 0;
-      try {
-        for (;;) {
-          const resp = await api.historyBars(runId, 5000, offset);
-          if (cancelled) return;
-          collected.push(...resp.bars);
-          setBars({ loading: true, error: null, items: collected, total: resp.total });
-          if (resp.bars.length === 0 || collected.length >= resp.total) break;
-          offset += resp.limit;
-        }
-        if (!cancelled) setBars({ loading: false, error: null, items: collected, total: collected.length });
-      } catch (e) {
-        if (!cancelled)
-          setBars({
-            loading: false,
-            error: e instanceof Error ? e.message : 'Tải bars thất bại',
-            items: collected,
-            total: collected.length,
-          });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [runId]);
+    setStripMode(filters.regimeMode === 'reference' ? 'reference' : 'ai');
+  }, [filters.regimeMode]);
 
+  // Global date range drives the chart focus + the segment list.
   useEffect(() => {
-    let cancelled = false;
-    setSegments({ loading: true, error: null, items: [], total: 0 });
-    (async () => {
-      const collected: HistorySegment[] = [];
-      let offset = 0;
-      try {
-        for (;;) {
-          const resp = await api.historySegments(runId, { limit: 1000, offset });
-          if (cancelled) return;
-          collected.push(...resp.segments);
-          setSegments({ loading: true, error: null, items: collected, total: resp.total });
-          if (resp.segments.length === 0 || collected.length >= resp.total) break;
-          offset += resp.limit;
-        }
-        if (!cancelled)
-          setSegments({ loading: false, error: null, items: collected, total: collected.length });
-      } catch (e) {
-        if (!cancelled)
-          setSegments({
-            loading: false,
-            error: e instanceof Error ? e.message : 'Tải segments thất bại',
-            items: collected,
-            total: collected.length,
-          });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [runId]);
+    if (filters.start && filters.end) {
+      const start = filters.start;
+      const end = filters.end;
+      setActivePreset('');
+      setFocusRange((prev) =>
+        prev && prev[0] === start && prev[1] === end ? prev : [start, end]
+      );
+    } else {
+      setFocusRange((prev) => (prev === null ? prev : null));
+    }
+  }, [filters.start, filters.end]);
 
   // Reference strip: group consecutive bars with identical reference_regime.
   const refSegments = useMemo<RefStripSegment[]>(
     () =>
-      groupStripSegments(bars.items, (b) => b.reference_regime ?? 'UNKNOWN').map((s) => ({
+      groupStripSegments(bars, (b) => b.reference_regime ?? 'UNKNOWN').map((s) => ({
         start_ts: s.start_ts,
         end_ts: s.end_ts,
         regime: s.key,
       })),
-    [bars.items]
+    [bars]
   );
 
   // Disagreement strip + agreement rate over the full dataset.
   const { diffSegments, agreementPct } = useMemo(() => {
-    const diffs: DiffStripSegment[] = groupStripSegments(bars.items, (b) =>
+    const diffs: DiffStripSegment[] = groupStripSegments(bars, (b) =>
       b.reference_regime != null && b.regime != null && b.reference_regime === b.regime
         ? 'agree'
         : 'disagree'
     ).map((s) => ({ start_ts: s.start_ts, end_ts: s.end_ts, agree: s.key === 'agree' }));
     let agree = 0;
-    for (const b of bars.items) {
+    for (const b of bars) {
       if (b.reference_regime != null && b.regime != null && b.reference_regime === b.regime) agree++;
     }
     return {
       diffSegments: diffs,
-      agreementPct: bars.items.length > 0 ? agree / bars.items.length : null,
+      agreementPct: bars.length > 0 ? agree / bars.length : null,
     };
-  }, [bars.items]);
+  }, [bars]);
 
   const selected = useMemo(
-    () => segments.items.find((s) => s.id === selectedId) ?? null,
-    [segments.items, selectedId]
+    () => segments.find((s) => s.id === selectedId) ?? null,
+    [segments, selectedId]
   );
 
   const selectedBar = useMemo(() => {
     if (!selectedBarTs) return null;
     const ms = new Date(selectedBarTs).getTime();
     if (!Number.isNaN(ms)) {
-      const exact = bars.items.find((b) => new Date(b.ts).getTime() === ms);
+      const exact = bars.find((b) => new Date(b.ts).getTime() === ms);
       if (exact) return exact;
     }
-    return bars.items.find((b) => b.ts === selectedBarTs) ?? null;
-  }, [selectedBarTs, bars.items]);
+    return bars.find((b) => b.ts === selectedBarTs) ?? null;
+  }, [selectedBarTs, bars]);
 
   function handleSelectBar(barTs: string) {
     setSelectedBarTs(barTs);
@@ -218,23 +175,34 @@ export default function TimelineTab({ run, runId }: { run: HistoryRun; runId: nu
     }
   }
 
-  const showList = useMemo(() => segments.items.slice(-400), [segments.items]);
+  // Segments filtered by the global date range.
+  const filteredSegments = useMemo(() => {
+    if (!filters.start && !filters.end) return segments;
+    return segments.filter((s) => segmentInRange(s.start_ts, s.end_ts, filters));
+  }, [segments, filters.start, filters.end]);
+
+  const showList = useMemo(() => filteredSegments.slice(-400), [filteredSegments]);
   const densityNum = Math.max(1, parseInt(density, 10) || 1);
 
   function applyRangePreset(label: string, days: number | null) {
-    setActivePreset(label);
     if (days == null) {
-      setFocusRange(null);
+      setActivePreset(label);
+      onDateRangePreset(null);
       return;
     }
     const endMs = run.data_end ? new Date(run.data_end).getTime() : Date.now();
     if (Number.isNaN(endMs)) return;
     const startMs = endMs - days * 24 * 60 * 60 * 1000;
-    setFocusRange([new Date(startMs).toISOString(), new Date(endMs).toISOString()]);
+    setActivePreset(label);
+    onDateRangePreset({
+      startDate: new Date(startMs).toISOString().slice(0, 10),
+      endDate: new Date(endMs).toISOString().slice(0, 10),
+    });
   }
 
   const refSegCount = refSegments.length;
-  const refAvailable = bars.items.some((b) => b.reference_regime != null);
+  const refAvailable = bars.some((b) => b.reference_regime != null);
+  const hasDateRange = Boolean(filters.start && filters.end);
 
   return (
     <div className={styles.stack}>
@@ -256,14 +224,24 @@ export default function TimelineTab({ run, runId }: { run: HistoryRun; runId: nu
             {p.label}
           </Button>
         ))}
+        {hasDateRange && (
+          <Button size="sm" onClick={() => onDateRangePreset(null)}>
+            Bỏ lọc ngày
+          </Button>
+        )}
+        <span className={styles.muted} style={{ fontSize: 12 }}>
+          Bộ lọc ngày đồng bộ với thanh lọc chung của trang
+        </span>
       </div>
 
       <Card
         title={`Timeline nến + regime — run #${runId}`}
         subtitle={
-          bars.loading
-            ? `Đang tải bars: ${fmtNum(bars.items.length, 0)} / ${bars.total ? fmtNum(bars.total, 0) : '…'}`
-            : `${fmtNum(bars.items.length, 0)} nến · ${fmtNum(segments.items.length, 0)} segments · nguồn: ${run.data_source ?? '—'}`
+          barsLoading
+            ? 'Đang tải toàn bộ nến (phân trang)…'
+            : `${fmtNum(bars.length, 0)} nến · ${fmtNum(segments.length, 0)} segments${
+                hasDateRange ? ` · lọc ngày: ${fmtUtc(filters.start)} → ${fmtUtc(filters.end)}` : ''
+              } · nguồn: ${run.data_source ?? '—'}`
         }
         right={
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
@@ -275,39 +253,31 @@ export default function TimelineTab({ run, runId }: { run: HistoryRun; runId: nu
           </div>
         }
       >
-        {bars.loading && (
-          <Loading
-            label={
-              bars.items.length > 0
-                ? `Đang tải toàn bộ nến: ${fmtNum(bars.items.length, 0)} / ${bars.total ? fmtNum(bars.total, 0) : '…'}…`
-                : 'Đang tải toàn bộ nến (phân trang)…'
-            }
-          />
-        )}
-        {bars.error && bars.items.length === 0 && <ErrorState error={bars.error} />}
-        {!bars.loading && !bars.error && bars.items.length === 0 && (
+        {barsLoading && <Loading label="Đang tải toàn bộ nến (phân trang)…" />}
+        {barsError != null && bars.length === 0 && <ErrorState error={barsError} />}
+        {!barsLoading && !barsError && bars.length === 0 && (
           <ErrorState title="Không có dữ liệu nến" error="Run không có bars." />
         )}
         {(stripMode === 'reference' || stripMode === 'overlay' || stripMode === 'disagreement') &&
           !refAvailable &&
-          !bars.loading &&
-          bars.items.length > 0 && (
+          !barsLoading &&
+          bars.length > 0 && (
             <Notice tone="warn">
               Run #{runId} không có dữ liệu <code>reference_regime</code> theo từng nến — dải
               Reference/Bất đồng không thể hiển thị. Hãy chạy lại run với backend có hỗ trợ reference
               engine.
             </Notice>
           )}
-        {!bars.loading && bars.items.length > 0 && (
+        {!barsLoading && bars.length > 0 && (
           <>
             <div className={styles.chartBox}>
               <TimelineChart
-                bars={bars.items}
-                segments={segments.items}
+                bars={bars}
+                segments={segments}
                 selectedSegmentId={selectedId}
                 focusRange={focusRange}
                 onSelectSegment={(id) => {
-                  const seg = segments.items.find((s) => s.id === id) ?? null;
+                  const seg = segments.find((s) => s.id === id) ?? null;
                   selectSegment(seg);
                 }}
                 onClearFocus={() => setFocusRange(null)}
@@ -337,7 +307,7 @@ export default function TimelineTab({ run, runId }: { run: HistoryRun; runId: nu
                 </span>
                 <strong style={{ fontSize: 12 }}>
                   {agreementPct != null ? `${fmtPct(agreementPct, 1)} đồng thuận` : '—'} trên toàn bộ{' '}
-                  {fmtNum(bars.items.length, 0)} nến
+                  {fmtNum(bars.length, 0)} nến
                 </strong>
               </div>
             )}
@@ -428,11 +398,13 @@ export default function TimelineTab({ run, runId }: { run: HistoryRun; runId: nu
       </div>
 
       <Card
-        title={`Danh sách segments (${fmtNum(segments.total, 0)} — hiển thị ${fmtNum(showList.length, 0)} gần nhất)`}
-        subtitle="Bấm để chọn & zoom"
+        title={`Danh sách segments (${fmtNum(filteredSegments.length, 0)}${
+          filteredSegments.length !== segments.length ? ` / ${fmtNum(segments.length, 0)}` : ''
+        } — hiển thị ${fmtNum(showList.length, 0)} gần nhất)`}
+        subtitle="Bấm để chọn & zoom · danh sách áp dụng bộ lọc ngày chung"
       >
-        {segments.loading && segments.items.length === 0 && <Loading label="Đang tải segments…" />}
-        {segments.error && segments.items.length === 0 && <ErrorState error={segments.error} />}
+        {segLoading && segments.length === 0 && <Loading label="Đang tải segments…" />}
+        {segError != null && segments.length === 0 && <ErrorState error={segError} />}
         {showList.length > 0 && (
           <div className={hstyles.segList}>
             {showList.map((s) => (
@@ -450,6 +422,11 @@ export default function TimelineTab({ run, runId }: { run: HistoryRun; runId: nu
                 </span>
               </button>
             ))}
+          </div>
+        )}
+        {!segLoading && !segError && showList.length === 0 && segments.length > 0 && (
+          <div className={styles.muted} style={{ padding: 14 }}>
+            Không có segment nào trong khoảng ngày đã chọn.
           </div>
         )}
       </Card>

@@ -1,0 +1,81 @@
+/* Analytics components (model performance charts, gauges) */
+
+.perfControls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.chartBox {
+  background: var(--bg-elev);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 6px;
+}
+
+.chartNote {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ---------- Freshness gauge ---------- */
+
+.gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.gaugeValue {
+  fill: var(--text-primary);
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.gaugeUnit {
+  fill: var(--text-tertiary);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.gaugeMeta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  margin-top: -6px;
+}
+
+.gaugeTf {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.gaugeLabel {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.gaugeSub {
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+}
+
+.gaugesRow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 560px) {
+  .gaugesRow {
+    grid-template-columns: 1fr;
+  }
+}

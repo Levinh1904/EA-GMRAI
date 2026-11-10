@@ -132,7 +132,7 @@ export function RegimeBadge({ regime, large }: { regime: string | null | undefin
     >
       <span
         className={styles.dot}
-        style={{ background: color, boxShadow: `0 0 6px ${color}` }}
+        style={{ background: color }}
       />
       {regimeLabel(regime)}
     </span>

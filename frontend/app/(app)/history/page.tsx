@@ -1,12 +1,15 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
 import { Button, EmptyState, ErrorState, Loading, Notice, PageHeader, StatusPill } from '@/components/ui/ui';
 import { api } from '@/lib/api';
 import { fmtNum, fmtUtc } from '@/lib/format';
 import { useApi } from '@/lib/swr';
 import type { HistoryRun, HistoryRunListResponse } from '@/lib/types';
+import { HistoryFiltersBar } from './HistoryFiltersBar';
+import { DEFAULT_FILTERS, dayRangeToUtc, type HistoryFilters } from './filters';
 import styles from '../pages.module.css';
 import hstyles from './history.module.css';
 import OverviewTab from './tabs/OverviewTab';
@@ -51,6 +54,8 @@ const TABS: Array<{ key: HistoryTabKey; label: string }> = [
   { key: 'reports', label: 'Báo cáo & Xuất' },
 ];
 
+const TAB_KEYS = new Set<string>(TABS.map((t) => t.key));
+
 interface Toast {
   tone: 'success' | 'danger' | 'info';
   text: string;
@@ -58,13 +63,36 @@ interface Toast {
 
 export default function HistoryPage() {
   const { user } = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const tabParam = searchParams?.get('tab') ?? null;
+
   const [tab, setTab] = useState<HistoryTabKey>('overview');
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
   const [scheduling, setScheduling] = useState(false);
 
+  // Global filters (date range / regime mode) + model version picker.
+  const [filters, setFilters] = useState<HistoryFilters>(DEFAULT_FILTERS);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [modelVersionId, setModelVersionId] = useState('');
+
   const runs = useApi<HistoryRunListResponse>('/history/runs?limit=20');
   const runList = runs.data?.runs ?? [];
+
+  // Deep-link support: /history?tab=reference (sidebar "So sánh Reference").
+  useEffect(() => {
+    if (tabParam && TAB_KEYS.has(tabParam)) setTab(tabParam as HistoryTabKey);
+  }, [tabParam]);
+
+  const selectTab = useCallback(
+    (next: HistoryTabKey) => {
+      setTab(next);
+      router.replace(`/history?tab=${next}`, { scroll: false });
+    },
+    [router]
+  );
 
   const anyActive = useMemo(
     () => runList.some((r) => r.status === 'running' || r.status === 'pending'),
@@ -100,6 +128,39 @@ export default function HistoryPage() {
     () => runList.find((r) => r.id === selectedRunId) ?? null,
     [runList, selectedRunId]
   );
+
+  // Date inputs → normalized UTC day range in the filters state.
+  useEffect(() => {
+    setFilters((prev) => {
+      const range = dayRangeToUtc(startDate || null, endDate || null);
+      return {
+        ...prev,
+        start: range?.start ?? null,
+        end: range?.end ?? null,
+      };
+    });
+  }, [startDate, endDate]);
+
+  function handleModelVersion(value: string) {
+    setModelVersionId(value);
+    const id = value ? Number(value) : null;
+    if (id == null) return;
+    const match = runList.find(
+      (r) => r.hmm_model_version_id === id && r.status === 'done'
+    ) ?? runList.find((r) => r.hmm_model_version_id === id);
+    if (match) {
+      setSelectedRunId(match.id);
+      setToast({
+        tone: 'info',
+        text: `Đã chuyển sang run #${match.id} (HMM v${id})`,
+      });
+    } else {
+      setToast({
+        tone: 'danger',
+        text: `Không có run lịch sử nào dùng mô hình HMM v${id}.`,
+      });
+    }
+  }
 
   async function scheduleRun() {
     if (scheduling) return;
@@ -188,6 +249,21 @@ export default function HistoryPage() {
 
       {!runs.isLoading && !runs.error && activeRun && (
         <>
+          <HistoryFiltersBar
+            filters={filters}
+            startDate={startDate}
+            endDate={endDate}
+            onStartDate={setStartDate}
+            onEndDate={setEndDate}
+            onClearDates={() => {
+              setStartDate('');
+              setEndDate('');
+            }}
+            modelVersionId={modelVersionId}
+            onModelVersion={handleModelVersion}
+            onRegimeMode={(m) => setFilters((prev) => ({ ...prev, regimeMode: m }))}
+          />
+
           <div className={hstyles.runInfoBar}>
             <StatusPill status={activeRun.status} />
             <span className={hstyles.mono}>
@@ -232,7 +308,7 @@ export default function HistoryPage() {
                 role="tab"
                 aria-selected={tab === t.key}
                 className={`${hstyles.tabBtn} ${tab === t.key ? hstyles.tabBtnActive : ''}`}
-                onClick={() => setTab(t.key)}
+                onClick={() => selectTab(t.key)}
               >
                 {t.label}
               </button>
@@ -241,11 +317,28 @@ export default function HistoryPage() {
 
           <div className={hstyles.tabPanel}>
             {tab === 'overview' && <OverviewTab run={activeRun} runId={activeRun.id} />}
-            {tab === 'timeline' && <TimelineTab run={activeRun} runId={activeRun.id} />}
+            {tab === 'timeline' && (
+              <TimelineTab
+                run={activeRun}
+                runId={activeRun.id}
+                filters={filters}
+                onDateRangePreset={(range) => {
+                  if (!range) {
+                    setStartDate('');
+                    setEndDate('');
+                  } else {
+                    setStartDate(range.startDate);
+                    setEndDate(range.endDate);
+                  }
+                }}
+              />
+            )}
             {tab === 'trends' && <TrendsTab runId={activeRun.id} />}
             {tab === 'sideways' && <SidewaysTab runId={activeRun.id} />}
             {tab === 'early' && <EarlyTrendTab runId={activeRun.id} />}
-            {tab === 'segments' && <SegmentsTab run={activeRun} runId={activeRun.id} />}
+            {tab === 'segments' && (
+              <SegmentsTab run={activeRun} runId={activeRun.id} filters={filters} />
+            )}
             {tab === 'transitions' && <TransitionsTab runId={activeRun.id} />}
             {tab === 'multitf' && <MultiTfTab runId={activeRun.id} />}
             {tab === 'compare' && <CompareTab runId={activeRun.id} runs={runList} />}

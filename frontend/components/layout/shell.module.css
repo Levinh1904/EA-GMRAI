@@ -3,11 +3,14 @@
   min-height: 100vh;
 }
 
-/* Sidebar */
+/* ---------- Sidebar (desktop) ---------- */
+
+.sidebarDesktop {
+  flex-shrink: 0;
+}
 
 .sidebar {
-  width: 236px;
-  flex-shrink: 0;
+  width: var(--sidebar-width);
   background: var(--bg-elev);
   border-right: 1px solid var(--border-soft);
   display: flex;
@@ -16,23 +19,37 @@
   top: 0;
   height: 100vh;
   padding: 16px 12px;
+  transition: width 0.16s ease;
+  overflow: hidden;
+}
+
+.sidebarCollapsed {
+  width: var(--sidebar-width-collapsed);
+  padding: 16px 8px;
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 4px 8px 16px;
+  padding: 4px 8px 14px;
   border-bottom: 1px solid var(--border-soft);
   margin-bottom: 12px;
+}
+
+.sidebarCollapsed .brand {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
 }
 
 .brandLogo {
   width: 34px;
   height: 34px;
-  border-radius: 9px;
-  background: linear-gradient(135deg, #f0b429, #b8860b);
-  color: #171106;
+  border-radius: 8px;
+  background: #2a3240;
+  border: 1px solid var(--border-strong);
+  color: #d9b64e;
   font-weight: 800;
   font-size: 14px;
   display: flex;
@@ -40,6 +57,10 @@
   justify-content: center;
   letter-spacing: 0.02em;
   flex-shrink: 0;
+}
+
+.brandText {
+  min-width: 0;
 }
 
 .brandName {
@@ -52,6 +73,7 @@
   font-size: 10.5px;
   color: var(--text-faint);
   letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 .nav {
@@ -60,6 +82,40 @@
   gap: 2px;
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.navGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.navGroupLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 10px 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.navGroupDivider {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 6px;
+}
+
+.navGroupDividerLine {
+  flex: 1;
+  height: 1px;
+  background: var(--border-soft);
 }
 
 .navItem {
@@ -67,12 +123,13 @@
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--text-muted);
   font-size: 13px;
   transition:
     background 0.12s ease,
     color 0.12s ease;
+  white-space: nowrap;
 }
 
 .navItem:hover {
@@ -86,14 +143,49 @@
   font-weight: 600;
 }
 
+.sidebarCollapsed .navItem {
+  justify-content: center;
+  padding: 9px 0;
+}
+
+/* Status dots */
+
+.statusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.statusDotPulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-disabled);
+  flex-shrink: 0;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Sidebar footer */
+
 .sidebarFoot {
   border-top: 1px solid var(--border-soft);
-  padding: 12px 8px 4px;
+  padding: 10px 4px 2px;
   font-size: 11px;
   color: var(--text-faint);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .sidebarFootRow {
@@ -102,6 +194,7 @@
   gap: 6px;
   overflow: hidden;
   white-space: nowrap;
+  padding: 0 6px;
 }
 
 .apiDot {
@@ -109,7 +202,6 @@
   height: 7px;
   border-radius: 50%;
   background: var(--green);
-  box-shadow: 0 0 5px var(--green);
   flex-shrink: 0;
 }
 
@@ -117,7 +209,97 @@
   font-family: var(--mono);
 }
 
-/* Main column */
+.collapseBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-soft);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  margin-bottom: 2px;
+}
+
+.collapseBtn:hover {
+  border-color: var(--border-default);
+  color: var(--text);
+}
+
+.sidebarCollapsed .collapseBtn {
+  padding: 7px 0;
+}
+
+/* ---------- Mobile drawer ---------- */
+
+.drawerLayer {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+}
+
+.drawerBackdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 6, 10, 0.62);
+}
+
+.drawer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elev);
+  border-right: 1px solid var(--border-soft);
+  width: 264px;
+  animation: drawerIn 0.16s ease;
+}
+
+@keyframes drawerIn {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.drawerHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.drawerTitle {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.drawerClose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.drawerClose:hover {
+  color: var(--text);
+}
+
+/* ---------- Main column ---------- */
 
 .main {
   flex: 1;
@@ -134,17 +316,36 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 10px 20px;
-  background: rgba(10, 13, 18, 0.92);
+  padding: 9px 20px;
+  background: rgba(10, 13, 18, 0.94);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border-soft);
+  min-height: var(--topbar-height);
 }
 
 .topbarLeft {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
   min-width: 0;
+}
+
+.menuBtn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.menuBtn:hover {
+  color: var(--text);
 }
 
 .topbarPage {
@@ -219,7 +420,7 @@
   justify-content: center;
   width: 30px;
   height: 30px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-muted);
@@ -287,8 +488,24 @@
   flex-wrap: wrap;
 }
 
+/* ---------- Responsive ---------- */
+
 @media (max-width: 900px) {
-  .sidebar {
+  .sidebarDesktop {
+    display: none;
+  }
+
+  .menuBtn {
+    display: flex;
+  }
+
+  .topbarPath {
+    display: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .topbarTime {
     display: none;
   }
 }

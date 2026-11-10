@@ -1,13 +1,21 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Badge, Button, Card, EmptyState, ErrorState, Loading, Notice, RegimeBadge } from '@/components/ui/ui';
 import { api } from '@/lib/api';
 import { fmtNum, fmtPrice, fmtUtc } from '@/lib/format';
 import { regimeColor } from '@/lib/regime';
 import { useApi } from '@/lib/swr';
-import type { HistoryRun, HistorySegment, HistorySegmentsResponse } from '@/lib/types';
+import type {
+  HistoryBar,
+  HistoryRun,
+  HistorySegment,
+  HistorySegmentsResponse,
+  Regime,
+} from '@/lib/types';
+import { useAllSegments, useRunBars } from '@/components/charts/TradingChart/useChartData';
 import { useHmmStateMap, isEarlyRegime } from '../shared';
+import { segmentInRange, type HistoryFilters } from '../filters';
 import { SegmentDetailPanel } from './SegmentDetailPanel';
 import styles from '../../pages.module.css';
 import hstyles from '../history.module.css';
@@ -28,7 +36,93 @@ const REGIME_FILTERS = [
   { value: 'UNKNOWN', label: 'UNKNOWN' },
 ];
 
-export default function SegmentsTab({ run, runId }: { run: HistoryRun; runId: number }) {
+/** Group consecutive bars with the same reference_regime into segment-like rows. */
+function buildReferenceSegments(bars: HistoryBar[]): HistorySegment[] {
+  const out: HistorySegment[] = [];
+  interface Acc {
+    regime: string;
+    start_ts: string;
+    end_ts: string;
+    open: number;
+    close: number;
+    high: number;
+    low: number;
+    count: number;
+    atrSum: number;
+    adxSum: number;
+    effSum: number;
+  }
+  let cur: Acc | null = null;
+  let index = 0;
+  const push = (a: Acc) => {
+    index++;
+    out.push({
+      id: -index,
+      segment_index: index,
+      regime: a.regime as Regime,
+      start_ts: a.start_ts,
+      end_ts: a.end_ts,
+      bar_count: a.count,
+      duration_minutes: a.count * 15,
+      start_price: a.open,
+      end_price: a.close,
+      high_price: a.high,
+      low_price: a.low,
+      net_change: a.close - a.open,
+      mfe: a.high - a.open,
+      mae: a.open - a.low,
+      atr_mean: a.atrSum / a.count,
+      adx_mean: a.adxSum / a.count,
+      efficiency_mean: a.effSum / a.count,
+      hmm_probs: null,
+      confidence_mean: Number.NaN,
+      model_version_id: null,
+      split_reason: null,
+      range_touches_high: 0,
+      range_touches_low: 0,
+    });
+  };
+  for (const b of bars) {
+    const r = b.reference_regime ?? 'UNKNOWN';
+    if (!cur || cur.regime !== r) {
+      if (cur) push(cur);
+      cur = {
+        regime: r,
+        start_ts: b.ts,
+        end_ts: b.ts,
+        open: b.open,
+        close: b.close,
+        high: b.high,
+        low: b.low,
+        count: 1,
+        atrSum: b.atr_ratio ?? 0,
+        adxSum: b.adx_norm ?? 0,
+        effSum: b.efficiency_ratio ?? 0,
+      };
+    } else {
+      cur.end_ts = b.ts;
+      cur.close = b.close;
+      if (b.high > cur.high) cur.high = b.high;
+      if (b.low < cur.low) cur.low = b.low;
+      cur.count++;
+      cur.atrSum += b.atr_ratio ?? 0;
+      cur.adxSum += b.adx_norm ?? 0;
+      cur.effSum += b.efficiency_ratio ?? 0;
+    }
+  }
+  if (cur) push(cur);
+  return out;
+}
+
+export default function SegmentsTab({
+  run,
+  runId,
+  filters,
+}: {
+  run: HistoryRun;
+  runId: number;
+  filters: HistoryFilters;
+}) {
   const [regime, setRegime] = useState('');
   const [minDur, setMinDur] = useState('');
   const [maxDur, setMaxDur] = useState('');
@@ -40,12 +134,20 @@ export default function SegmentsTab({ run, runId }: { run: HistoryRun; runId: nu
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'segment_index', dir: 1 });
   const hmmStateMap = useHmmStateMap(run.hmm_model_version_id);
 
-  const [topLongest, setTopLongest] = useState<HistorySegment[]>([]);
-  const [topState, setTopState] = useState<{ loading: boolean; error: string | null }>({
-    loading: false,
-    error: null,
-  });
+  const referenceMode = filters.regimeMode === 'reference';
+  const dateFiltered = Boolean(filters.start || filters.end);
 
+  // Reference mode: bar-level reference_regime → pseudo segments.
+  const { bars, isLoading: barsLoading, error: barsError } = useRunBars(runId, referenceMode);
+  const pseudoSegments = useMemo(
+    () => (referenceMode ? buildReferenceSegments(bars) : []),
+    [referenceMode, bars]
+  );
+
+  // Full segment list (for top-longest + date-filtered client mode).
+  const { segments: allSegs, isLoading: allSegsLoading, error: allSegsError } = useAllSegments(runId);
+
+  // Server-paginated query (default AI mode without a date range).
   const query = useMemo(() => {
     const q = new URLSearchParams();
     q.set('limit', String(PAGE));
@@ -57,63 +159,34 @@ export default function SegmentsTab({ run, runId }: { run: HistoryRun; runId: nu
   }, [applied]);
 
   const { data, error, isLoading } = useApi<HistorySegmentsResponse>(
-    `/history/runs/${runId}/segments?${query}`
+    !referenceMode && !dateFiltered ? `/history/runs/${runId}/segments?${query}` : null
   );
 
-  useEffect(() => {
-    setExtra([]);
-    setSelectedId(null);
-  }, [query]);
+  const useClientFilter = referenceMode || dateFiltered;
 
-  // Load full segment list once (for top-longest per regime).
-  useEffect(() => {
-    let cancelled = false;
-    setTopState({ loading: true, error: null });
-    (async () => {
-      try {
-        const collected: HistorySegment[] = [];
-        let offset = 0;
-        for (;;) {
-          const resp = await api.historySegments(runId, { limit: 1000, offset });
-          if (cancelled) return;
-          collected.push(...resp.segments);
-          if (resp.segments.length === 0 || collected.length >= resp.total) break;
-          offset += resp.limit;
-        }
-        if (!cancelled) {
-          const top: HistorySegment[] = [];
-          const seen = new Set<string>();
-          const byRegime = new Map<string, HistorySegment[]>();
-          for (const s of collected) {
-            const key = isEarlyRegime(s.regime) ? 'EARLY_TREND' : (s.regime ?? 'UNKNOWN');
-            const arr = byRegime.get(key) ?? [];
-            arr.push(s);
-            byRegime.set(key, arr);
-          }
-          for (const [key, arr] of byRegime) {
-            if (seen.has(key)) continue;
-            seen.add(key);
-            arr.sort((a, b) => b.duration_minutes - a.duration_minutes);
-            top.push(...arr.slice(0, 5));
-          }
-          top.sort((a, b) => b.duration_minutes - a.duration_minutes);
-          setTopLongest(top);
-        }
-      } catch (e) {
-        if (!cancelled)
-          setTopState({ loading: false, error: e instanceof Error ? e.message : 'Tải segments thất bại' });
-      } finally {
-        if (!cancelled) setTopState((prev) => ({ ...prev, loading: false }));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [runId]);
+  // Base rows depending on mode.
+  const baseRows = useMemo<HistorySegment[]>(() => {
+    if (referenceMode) return pseudoSegments;
+    if (dateFiltered) {
+      return allSegs.filter((s) => segmentInRange(s.start_ts, s.end_ts, filters));
+    }
+    return [...extra, ...(data?.segments ?? [])];
+  }, [referenceMode, dateFiltered, pseudoSegments, allSegs, filters, extra, data]);
 
-  const rows = useMemo(() => [...extra, ...(data?.segments ?? [])], [extra, data]);
-  const total = data?.total ?? 0;
-  const hasMore = rows.length < total;
+  const rows = useMemo(() => {
+    if (!useClientFilter) return baseRows;
+    const min = minDur ? Number(minDur) : null;
+    const max = maxDur ? Number(maxDur) : null;
+    return baseRows.filter((s) => {
+      if (regime && s.regime !== regime) return false;
+      if (min != null && s.duration_minutes < min) return false;
+      if (max != null && s.duration_minutes > max) return false;
+      return true;
+    });
+  }, [useClientFilter, baseRows, regime, minDur, maxDur]);
+
+  const total = useClientFilter ? rows.length : (data?.total ?? 0);
+  const hasMore = !useClientFilter && rows.length < total;
 
   const sortedRows = useMemo(() => {
     const { key, dir } = sort;
@@ -167,9 +240,29 @@ export default function SegmentsTab({ run, runId }: { run: HistoryRun; runId: nu
   }
 
   const selected = useMemo(
-    () => rows.find((s) => s.id === selectedId) ?? topLongest.find((s) => s.id === selectedId) ?? null,
-    [rows, topLongest, selectedId]
+    () => rows.find((s) => s.id === selectedId) ?? allSegs.find((s) => s.id === selectedId) ?? null,
+    [rows, allSegs, selectedId]
   );
+
+  const topLongest = useMemo(() => {
+    const top: HistorySegment[] = [];
+    const seen = new Set<string>();
+    const byRegime = new Map<string, HistorySegment[]>();
+    for (const s of allSegs) {
+      const key = isEarlyRegime(s.regime) ? 'EARLY_TREND' : (s.regime ?? 'UNKNOWN');
+      const arr = byRegime.get(key) ?? [];
+      arr.push(s);
+      byRegime.set(key, arr);
+    }
+    for (const [key, arr] of byRegime) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+      arr.sort((a, b) => b.duration_minutes - a.duration_minutes);
+      top.push(...arr.slice(0, 5));
+    }
+    top.sort((a, b) => b.duration_minutes - a.duration_minutes);
+    return top;
+  }, [allSegs]);
 
   const topByRegime = useMemo(() => {
     const map = new Map<string, HistorySegment[]>();
@@ -183,11 +276,36 @@ export default function SegmentsTab({ run, runId }: { run: HistoryRun; runId: nu
   }, [topLongest]);
 
   function applyFilters() {
+    if (useClientFilter) return; // client-side, applied live
     setApplied({ regime, minDur, maxDur });
   }
 
+  function clearFilters() {
+    setRegime('');
+    setMinDur('');
+    setMaxDur('');
+    setApplied({ regime: '', minDur: '', maxDur: '' });
+  }
+
+  const clientLoading = referenceMode ? barsLoading : dateFiltered ? allSegsLoading : false;
+  const clientError = referenceMode ? barsError : dateFiltered ? allSegsError : null;
+
   return (
     <div className={styles.stack}>
+      {referenceMode && (
+        <Notice tone="info">
+          <strong>Chế độ Reference:</strong> danh sách bên dưới được nhóm từ{' '}
+          <code>reference_regime</code> của từng nến (động cơ quy tắc) — không phải segments AI gốc.
+          Các trường như posterior HMM / model version không áp dụng cho chế độ này.
+        </Notice>
+      )}
+      {dateFiltered && !referenceMode && (
+        <Notice tone="info">
+          Đang lọc theo khoảng ngày: {fmtUtc(filters.start)} → {fmtUtc(filters.end)} (lọc phía máy
+          khách trên toàn bộ segments).
+        </Notice>
+      )}
+
       <div className={styles.toolbar}>
         <select className={hstyles.select} value={regime} onChange={(e) => setRegime(e.target.value)}>
           {REGIME_FILTERS.map((o) => (
@@ -220,33 +338,33 @@ export default function SegmentsTab({ run, runId }: { run: HistoryRun; runId: nu
           placeholder="∞"
           style={{ width: 110 }}
         />
-        <Button onClick={applyFilters}>Áp dụng bộ lọc</Button>
-        {applied.regime || applied.minDur || applied.maxDur ? (
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setRegime('');
-              setMinDur('');
-              setMaxDur('');
-              setApplied({ regime: '', minDur: '', maxDur: '' });
-            }}
-          >
+        {!useClientFilter && <Button onClick={applyFilters}>Áp dụng bộ lọc</Button>}
+        {useClientFilter && (
+          <span className={styles.muted} style={{ fontSize: 12 }}>
+            Bộ lọc áp dụng trực tiếp (chế độ Reference / lọc ngày)
+          </span>
+        )}
+        {regime || minDur || maxDur ? (
+          <Button variant="ghost" onClick={clearFilters}>
             Xóa bộ lọc
           </Button>
         ) : null}
-        <span className={styles.muted}>
-          {data ? `${fmtNum(data.total, 0)} segments khớp` : ''}
-        </span>
+        <span className={styles.muted}>{fmtNum(total, 0)} segments khớp</span>
       </div>
 
       <Card
         title="Danh sách segments"
         subtitle="Bấm tiêu đề cột để sắp xếp (trên dữ liệu đã tải) · bấm một dòng để xem chi tiết"
       >
+        {clientLoading && rows.length === 0 && <Loading label="Đang tải segments…" />}
+        {clientError != null && rows.length === 0 && <ErrorState error={clientError} />}
         {isLoading && rows.length === 0 && <Loading label="Đang tải segments…" />}
         {error && rows.length === 0 && <ErrorState error={error} />}
-        {!isLoading && !error && rows.length === 0 && (
-          <EmptyState title="Không có segment khớp bộ lọc" hint="Thử nới rộng khoảng thời lượng hoặc chọn regime khác." />
+        {!isLoading && !error && !clientLoading && !clientError && rows.length === 0 && (
+          <EmptyState
+            title="Không có segment khớp bộ lọc"
+            hint="Thử nới rộng khoảng thời lượng hoặc chọn regime khác."
+          />
         )}
         {rows.length > 0 && (
           <>
@@ -277,7 +395,9 @@ export default function SegmentsTab({ run, runId }: { run: HistoryRun; runId: nu
                         background: s.id === selectedId ? 'rgba(76,141,255,0.10)' : undefined,
                       }}
                     >
-                      <td className="mono">{s.segment_index}</td>
+                      <td className="mono">
+                        {s.id < 0 ? `${s.segment_index}*` : s.segment_index}
+                      </td>
                       <td>
                         <RegimeBadge regime={s.regime} />
                       </td>
@@ -301,14 +421,16 @@ export default function SegmentsTab({ run, runId }: { run: HistoryRun; runId: nu
                 </tbody>
               </table>
             </div>
-            <div className={styles.toolbar} style={{ marginTop: 12, marginBottom: 0 }}>
-              <Button onClick={loadMore} disabled={extraLoading || !hasMore}>
-                {extraLoading ? 'Đang tải…' : `Tải thêm ${PAGE} segments`}
-              </Button>
-              <span className={styles.muted}>
-                Đã hiển thị {fmtNum(rows.length, 0)} / {fmtNum(total, 0)}
-              </span>
-            </div>
+            {!useClientFilter && (
+              <div className={styles.toolbar} style={{ marginTop: 12, marginBottom: 0 }}>
+                <Button onClick={loadMore} disabled={extraLoading || !hasMore}>
+                  {extraLoading ? 'Đang tải…' : `Tải thêm ${PAGE} segments`}
+                </Button>
+                <span className={styles.muted}>
+                  Đã hiển thị {fmtNum(rows.length, 0)} / {fmtNum(total, 0)}
+                </span>
+              </div>
+            )}
             {extraError && <Notice tone="danger">{extraError}</Notice>}
           </>
         )}
@@ -316,10 +438,10 @@ export default function SegmentsTab({ run, runId }: { run: HistoryRun; runId: nu
 
       {selected && <SegmentDetailPanel segment={selected} hmmStateMap={hmmStateMap} />}
 
-      <Card title="Top 5 segments dài nhất theo regime" subtitle="Tính trên toàn bộ segments của run">
-        {topState.loading && <Loading label="Đang quét toàn bộ segments…" />}
-        {topState.error && <ErrorState error={topState.error} />}
-        {!topState.loading && !topState.error && topByRegime.size === 0 && (
+      <Card title="Top 5 segments dài nhất theo regime" subtitle="Tính trên toàn bộ segments AI của run">
+        {allSegsLoading && topLongest.length === 0 && <Loading label="Đang quét toàn bộ segments…" />}
+        {allSegsError != null && topLongest.length === 0 && <ErrorState error={allSegsError} />}
+        {!allSegsLoading && !allSegsError && topByRegime.size === 0 && (
           <EmptyState title="Chưa có dữ liệu top segments" />
         )}
         {[...topByRegime.entries()].map(([key, segs]) => (

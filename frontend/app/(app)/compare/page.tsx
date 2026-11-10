@@ -29,6 +29,14 @@ const VariantCompareChart = dynamic(() => import('@/components/charts/VariantCom
   loading: () => <Loading label="Đang tải biểu đồ so sánh…" />,
 });
 
+const ModelPerformancePanel = dynamic(
+  () => import('@/components/analytics/ModelPerformancePanel').then((m) => m.ModelPerformancePanel),
+  {
+    ssr: false,
+    loading: () => <Loading label="Đang tải biểu đồ hiệu suất theo thời gian…" />,
+  }
+);
+
 const VARIANTS = ['hmm_only', 'rf_only', 'combined'] as const;
 
 function f1Of(v: VariantComparison | undefined): string {
@@ -98,6 +106,8 @@ export default function ComparePage() {
         title="So sánh mô hình"
         subtitle="HMM-only vs RF-only vs HMM+RF (combined) — từ backtest walk-forward và huấn luyện"
       />
+
+      <ModelPerformancePanel />
 
       <Card
         title="So sánh biến thể — Backtest walk-forward"

@@ -14,6 +14,9 @@ import {
   Stat,
   StatusPill,
 } from '@/components/ui/ui';
+import { FreshnessGauge } from '@/components/analytics/FreshnessGauge';
+import { RegimeDonut } from '@/components/regime/RegimeDonut';
+import { useLatestDoneRun } from '@/components/charts/TradingChart/useChartData';
 import { fmtAge, fmtNum, fmtPct, fmtPrice, fmtUtc, fmtUtcSec } from '@/lib/format';
 import {
   isEarlyTrend,
@@ -21,9 +24,11 @@ import {
   permissionTone,
   reasonCodeLabel,
   regimeColor,
+  regimeShortLabel,
 } from '@/lib/regime';
 import { useApi } from '@/lib/swr';
-import type { DashboardStats, MarketLatest, Timeframe } from '@/lib/types';
+import type { DashboardStats, DurationStatsResponse, MarketLatest, Timeframe } from '@/lib/types';
+import { REGIME_ORDER } from './history/shared';
 import styles from './pages.module.css';
 
 const TIMEFRAMES: Timeframe[] = ['M5', 'M15', 'H1'];
@@ -37,6 +42,13 @@ export default function OverviewPage() {
     refreshInterval: 30000,
     revalidateOnFocus: true,
   });
+
+  // Regime distribution from the latest done history run (duration stats).
+  const doneRun = useLatestDoneRun();
+  const duration = useApi<DurationStatsResponse>(
+    doneRun ? `/history/runs/${doneRun.id}/stats/duration` : null,
+    { refreshInterval: 120000, revalidateOnFocus: false }
+  );
 
   if (isLoading) return <Loading label="Đang tải tổng quan…" />;
   if (error)
@@ -211,6 +223,62 @@ export default function OverviewPage() {
             </Card>
           );
         })}
+      </div>
+
+      <div className={`${styles.grid} ${styles.cols2}`}>
+        {/* Data freshness gauges */}
+        <Card
+          title="Đồng hồ đo độ tươi dữ liệu"
+          subtitle="Tuổi nến gần nhất so với ngưỡng cảnh báo của từng khung thời gian"
+        >
+          <div className={styles.gaugesRowLocal}>
+            {TIMEFRAMES.map((tf) => (
+              <FreshnessGauge key={tf} tf={tf} info={data.data_freshness[tf]} />
+            ))}
+          </div>
+        </Card>
+
+        {/* Regime distribution donut */}
+        <Card
+          title="Phân bố chế độ thị trường"
+          subtitle={
+            doneRun
+              ? `Thời lượng chiếm dụng theo regime — run lịch sử #${doneRun.id} (${fmtNum(doneRun.bar_count, 0)} nến M15)`
+              : 'Từ run phân tích lịch sử mới nhất'
+          }
+        >
+          {duration.isLoading && <Loading label="Đang tải phân bố regime…" />}
+          {duration.error && !duration.data && <ErrorState error={duration.error} />}
+          {duration.data && (() => {
+            const dur = duration.data;
+            const dominant = REGIME_ORDER.reduce((best, r) =>
+              (dur.regimes[r.key]?.occupancy_pct ?? 0) > (dur.regimes[best.key]?.occupancy_pct ?? 0)
+                ? r
+                : best
+            );
+            return (
+              <>
+                <RegimeDonut
+                  slices={REGIME_ORDER.map((r) => ({
+                    key: r.key,
+                    label: r.label,
+                    value: dur.regimes[r.key]?.occupancy_pct ?? 0,
+                    color: r.color,
+                  }))}
+                  centerValue={regimeShortLabel(dominant.key)}
+                  centerLabel="chế độ chính"
+                />
+                <div className={styles.muted} style={{ fontSize: 12, marginTop: 10 }}>
+                  Tổng {fmtNum(dur.total_transitions, 0)} lần chuyển chế độ trong toàn bộ dữ liệu
+                  lịch sử.
+                </div>
+              </>
+            );
+          })()}
+          {!duration.isLoading && !duration.data && (
+            <ErrorState title="Chưa có run lịch sử" error="Chạy phân tích lịch sử để xem phân bố regime." />
+          )}
+        </Card>
       </div>
 
       {/* Probabilities */}

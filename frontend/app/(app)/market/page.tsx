@@ -1,113 +1,167 @@
 'use client';
 
+// Live Market — professional trading view built on the lightweight-charts
+// engine. All numbers come from the real FastAPI backend; the collector only
+// stores CLOSED candles, so we show an honest "chỉ nến đã đóng" indicator,
+// and there are no trade-signal markers (the signals toggle is disabled).
+
+import { useCallback, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { useMemo, useState } from 'react';
+import { Card, EmptyState, ErrorState, Loading, Notice } from '@/components/ui/ui';
 import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorState,
-  Loading,
-  Notice,
-  PageHeader,
-  Segmented,
-  Stat,
-} from '@/components/ui/ui';
-import { api } from '@/lib/api';
-import { fmtNum, fmtPrice, fmtUtc } from '@/lib/format';
-import { alignRegimePerCandle, computeEma, lastChangePct } from '@/lib/market';
-import { regimeColor, regimeLabel } from '@/lib/regime';
+  MarketStatsCard,
+  RecentTransitionsCard,
+} from '@/components/market/MarketSections';
+import { AiVsReferenceCard } from '@/components/market/AiVsReference';
+import { RegimeSidePanel } from '@/components/market/RegimeSidePanel';
+import { RegimeTimelineStrip } from '@/components/market/RegimeTimelineStrip';
+import { TickerBar } from '@/components/market/TickerBar';
+import {
+  barsToReferenceBands,
+  segmentsToBands,
+  tsToSec,
+  useBarsIndex,
+  useCandlesPaged,
+  useLatestDoneRun,
+  useRunBars,
+  useRunSegments,
+} from '@/components/charts/TradingChart/useChartData';
+import { ChartToolbar } from '@/components/charts/TradingChart/chartToolbar';
+import type { TradingChartHandle } from '@/components/charts/TradingChart/TradingChartContainer';
 import { useApi } from '@/lib/swr';
-import type { Candle, MarketLatest, RegimeHistoryResponse, Timeframe } from '@/lib/types';
-import styles from '../pages.module.css';
+import { fmtNum } from '@/lib/format';
+import { regimeColor } from '@/lib/regime';
+import type { DashboardStats, MultiTfStatsResponse, RegimeLatest, Timeframe } from '@/lib/types';
+import styles from '@/components/market/market.module.css';
+import pstyles from '../pages.module.css';
 
-const CandlestickChart = dynamic(() => import('@/components/charts/CandlestickChart'), {
-  ssr: false,
-  loading: () => <Loading label="Đang tải biểu đồ nến…" />,
-});
-const RegimeStripChart = dynamic(() => import('@/components/charts/RegimeStripChart'), {
-  ssr: false,
-});
+const TradingChartContainer = dynamic(
+  () => import('@/components/charts/TradingChart/TradingChartContainer'),
+  { ssr: false, loading: () => <Loading label="Đang khởi tạo biểu đồ nến…" /> }
+);
 
-const TF_OPTIONS: Array<{ value: Timeframe; label: string }> = [
-  { value: 'M5', label: 'M5' },
-  { value: 'M15', label: 'M15' },
-  { value: 'H1', label: 'H1' },
-];
-
-const TF_BAR_MS: Record<Timeframe, number> = { M5: 5 * 60 * 1000, M15: 15 * 60 * 1000, H1: 3600 * 1000 };
-const TF_LABEL: Record<Timeframe, string> = { M5: 'M5', M15: 'M15', H1: 'H1' };
+const TF_BAR_SEC: Record<Timeframe, number> = { M5: 300, M15: 900, H1: 3600 };
 
 export default function MarketPage() {
   const [tf, setTf] = useState<Timeframe>('M15');
-  const [extra, setExtra] = useState<Candle[]>([]);
-  const [nextOffset, setNextOffset] = useState(500);
-  const [total, setTotal] = useState<number | null>(null);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [activeRange, setActiveRange] = useState<string | null>(null);
 
-  const { data, error, isLoading } = useApi<{
-    total: number;
-    limit: number;
-    offset: number;
-    candles: Candle[];
-  }>(`/market/candles?timeframe=${tf}&limit=500&offset=0&symbol=XAUUSD`, {
-    refreshInterval: 60000,
-  });
-  const history = useApi<RegimeHistoryResponse>('/regime/history?limit=500', {
-    refreshInterval: 60000,
-  });
-  const latest = useApi<MarketLatest>('/market/latest', { refreshInterval: 30000 });
+  // View toggles
+  const [showVolume, setShowVolume] = useState(true);
+  const [showGrid, setShowGrid] = useState(true);
+  const [showCrosshair, setShowCrosshair] = useState(true);
+  const [autoScale, setAutoScale] = useState(true);
+  const [showEma, setShowEma] = useState(true);
+  const [showAiBands, setShowAiBands] = useState(true);
+  const [showRefBands, setShowRefBands] = useState(false);
 
-  function switchTf(next: Timeframe) {
-    if (next === tf) return;
-    setTf(next);
-    setExtra([]);
-    setNextOffset(500);
-    setTotal(null);
-    setLoadError(null);
-  }
+  const chartRef = useRef<TradingChartHandle | null>(null);
+  const fullscreenRef = useRef<HTMLDivElement | null>(null);
 
-  const candles = useMemo<Candle[]>(() => [...extra, ...(data?.candles ?? [])], [extra, data]);
+  // ---- Data ---------------------------------------------------------------
+  const candles = useCandlesPaged(tf);
+  const regime = useApi<RegimeLatest>('/regime/latest', { refreshInterval: 30000 });
+  const dashboard = useApi<DashboardStats>('/stats/dashboard', { refreshInterval: 30000 });
 
-  const ema = useMemo(
-    () => computeEma(candles.map((c) => c.close), 20),
-    [candles]
+  const doneRun = useLatestDoneRun();
+  const { segments, isLoading: segLoading, error: segError } = useRunSegments(doneRun?.id ?? null);
+  const overlaysOn = showAiBands || showRefBands;
+  const { bars, isLoading: barsLoading, error: barsError } = useRunBars(
+    doneRun?.id ?? null,
+    overlaysOn
   );
-  const regimes = useMemo(
-    () => alignRegimePerCandle(candles, history.data?.history ?? []),
-    [candles, history.data]
+  const barsByTime = useBarsIndex(bars);
+  const multiTf = useApi<MultiTfStatsResponse>(
+    doneRun ? `/history/runs/${doneRun.id}/stats/multi_tf` : null,
+    { revalidateOnFocus: false, refreshInterval: 0 }
   );
 
-  const last = candles.length ? candles[candles.length - 1] : null;
-  const changePct = lastChangePct(candles);
-  const lastEma = [...ema].reverse().find((v) => v != null) ?? null;
-  const hasMore = total != null && total > nextOffset;
-  const demoSource = data?.candles[0]?.source === 'synthetic_demo';
+  // ---- Derived -------------------------------------------------------------
+  const last = candles.candles.length ? candles.candles[candles.candles.length - 1] : null;
+  const prev = candles.candles.length > 1 ? candles.candles[candles.candles.length - 2] : null;
+  const freshness = dashboard.data?.data_freshness?.[tf];
 
-  async function loadMore() {
-    if (loadingMore) return;
-    setLoadingMore(true);
-    setLoadError(null);
-    try {
-      const resp = await api.candles(tf, 500, nextOffset);
-      setExtra((prev) => [...resp.candles, ...prev]);
-      setNextOffset(resp.offset + resp.limit);
-      setTotal(resp.total);
-    } catch (e) {
-      setLoadError(e instanceof Error ? e.message : 'Tải thêm dữ liệu thất bại');
-    } finally {
-      setLoadingMore(false);
+  const aiBands = useMemo(() => segmentsToBands(segments), [segments]);
+  const refBands = useMemo(() => barsToReferenceBands(bars), [bars]);
+
+  const lastBar = useMemo(() => {
+    if (!bars.length) return null;
+    const lastTs = last ? new Date(last.ts).getTime() : Infinity;
+    // Latest bar at or before the newest loaded candle.
+    for (let i = bars.length - 1; i >= 0; i--) {
+      const t = new Date(bars[i].ts).getTime();
+      if (t <= lastTs) return bars[i];
     }
-  }
+    return bars[bars.length - 1];
+  }, [bars, last]);
+
+  const demoSource =
+    candles.candles[0]?.source === 'synthetic_demo' ||
+    regime.data?.data_source === 'synthetic_demo';
+
+  // ---- Actions -------------------------------------------------------------
+  const loadMore = useCallback(() => {
+    void candles.loadMore();
+  }, [candles]);
+
+  const handleTimeframeChange = useCallback(
+    (next: Timeframe) => {
+      if (next === tf) return;
+      setActiveRange(null);
+      setTf(next);
+    },
+    [tf]
+  );
+
+  const handleRange = useCallback(
+    (days: number | null, label: string) => {
+      setActiveRange(label);
+      const chart = chartRef.current;
+      if (!chart) return;
+      if (days == null) {
+        chart.fitContent();
+        return;
+      }
+      const times = candles.candles.map((c) => new Date(c.ts).getTime());
+      if (times.length === 0) return;
+      const toMs = times[times.length - 1];
+      const fromMs = Math.max(times[0], toMs - days * 24 * 60 * 60 * 1000);
+      const buffer = TF_BAR_SEC[tf] * 8;
+      chart.focusRange(Math.floor(fromMs / 1000), Math.floor(toMs / 1000) + buffer);
+    },
+    [candles.candles, tf]
+  );
+
+  const handleStripFocus = useCallback(
+    (ts: string) => {
+      const chart = chartRef.current;
+      if (!chart) return;
+      const t = tsToSec(ts);
+      const tfSec = TF_BAR_SEC[tf];
+      chart.focusRange(t - tfSec * 12, t + tfSec * 80);
+      setActiveRange(null);
+    },
+    [tf]
+  );
+
+  const handleFullscreen = useCallback(() => {
+    const el = fullscreenRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+    } else {
+      void el.requestFullscreen?.();
+    }
+  }, []);
 
   return (
-    <div className={styles.stack}>
-      <PageHeader
-        title="Thị trường trực tiếp"
-        subtitle="Biểu đồ nến XAUUSD với EMA20 và nền chế độ thị trường"
-        right={<Segmented options={TF_OPTIONS} value={tf} onChange={switchTf} />}
+    <div className={pstyles.stack}>
+      <TickerBar
+        last={last}
+        prev={prev}
+        timeframe={tf}
+        freshness={freshness}
+        loading={candles.loading}
       />
 
       {demoSource && (
@@ -117,152 +171,164 @@ export default function MarketPage() {
         </Notice>
       )}
 
-      {last && (
-        <div className={`${styles.grid} ${styles.cols4}`}>
-          <Card title={`Giá cuối ${TF_LABEL[tf]}`}>
-            <Stat
-              label="Close"
-              value={fmtPrice(last.close)}
-              sub={`${fmtUtc(last.ts)}`}
-              tone={changePct != null && changePct >= 0 ? 'up' : changePct != null ? 'down' : 'neutral'}
-            />
-          </Card>
-          <Card title="Thay đổi (nến trước)">
-            <Stat
-              label="Delta"
-              value={changePct != null ? `${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%` : '—'}
-              sub={last.open ? `mở cửa ${fmtPrice(last.open)}` : '—'}
-              tone={changePct != null && changePct >= 0 ? 'up' : changePct != null ? 'down' : 'neutral'}
-            />
-          </Card>
-          <Card title="EMA20">
-            <Stat label="Giá trị" value={lastEma != null ? fmtPrice(lastEma) : '—'} sub="chu kỳ 20 nến" />
-          </Card>
-          <Card title="Thanh khoản & chênh lệch">
-            <Stat
-              label="Tick volume"
-              value={fmtNum(last.tick_volume, 0)}
-              sub={`spread ${last.spread} điểm`}
-            />
-          </Card>
-        </div>
-      )}
+      <div className={styles.marketLayout}>
+        <div className={styles.chartColumn}>
+          <ChartToolbar
+            timeframe={tf}
+            onTimeframeChange={handleTimeframeChange}
+            activeRange={activeRange}
+            onRange={handleRange}
+            onZoomIn={() => chartRef.current?.zoomIn()}
+            onZoomOut={() => chartRef.current?.zoomOut()}
+            onReset={() => {
+              setActiveRange(null);
+              chartRef.current?.reset();
+            }}
+            onFitContent={() => {
+              setActiveRange('TẤT CẢ');
+              chartRef.current?.fitContent();
+            }}
+            autoScale={autoScale}
+            onAutoScaleToggle={() => setAutoScale((v) => !v)}
+            showGrid={showGrid}
+            onGridToggle={() => setShowGrid((v) => !v)}
+            showCrosshair={showCrosshair}
+            onCrosshairToggle={() => setShowCrosshair((v) => !v)}
+            showVolume={showVolume}
+            onVolumeToggle={() => setShowVolume((v) => !v)}
+            showEma={showEma}
+            onEmaToggle={() => setShowEma((v) => !v)}
+            showAiBands={showAiBands}
+            onAiBandsToggle={() => setShowAiBands((v) => !v)}
+            showRefBands={showRefBands}
+            onRefBandsToggle={() => setShowRefBands((v) => !v)}
+            onFullscreen={handleFullscreen}
+          />
 
-      <Card
-        title={`Biểu đồ nến ${TF_LABEL[tf]} — XAUUSD`}
-        subtitle={
-          candles.length
-            ? `${fmtNum(candles.length, 0)} / ${total != null ? fmtNum(total, 0) : '…'} nến · nguồn: ${
-                last?.source ?? '—'
-              }`
-            : undefined
-        }
-      >
-        {isLoading && candles.length === 0 && <Loading label="Đang tải nến…" />}
-        {error && candles.length === 0 && <ErrorState error={error} />}
-        {!isLoading && !error && candles.length === 0 && (
-          <EmptyState title="Chưa có dữ liệu nến" hint="Hãy thử khung thời gian khác" />
-        )}
-        {candles.length > 0 && (
-          <>
-            <div className={styles.chartBox}>
-              <CandlestickChart
-                candles={candles}
-                ema={ema}
-                regimes={regimes}
-                height={470}
-                title={`${TF_LABEL[tf]} · nến + EMA20 · nền màu = chế độ thị trường (HMM)`}
-              />
+          <div ref={fullscreenRef} className={styles.chartCard}>
+            <div className={styles.chartHeader}>
+              <span className={styles.closedCandlesBadge} title="Collector chỉ lưu nến đã đóng — không có nến đang hình thành">
+                Chỉ nến đã đóng
+              </span>
+              <span style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>
+                {candles.candles.length > 0
+                  ? `${fmtNum(candles.candles.length, 0)} / ${fmtNum(candles.total, 0)} nến đã tải · nguồn ${last?.source ?? '—'}`
+                  : '—'}
+              </span>
             </div>
-            <div className={styles.chartBox} style={{ marginTop: 10 }}>
-              <RegimeStripChart
-                points={candles.map((c, i) => ({ ts: c.ts, regime: regimes[i] ?? null }))}
-                barWidthMs={TF_BAR_MS[tf]}
-                height={96}
-              />
-            </div>
-            <div className={styles.legend}>
-              {Object.entries({
-                TREND_UP: 'Xu hướng tăng',
-                TREND_DOWN: 'Xu hướng giảm',
-                SIDEWAYS: 'Đi ngang',
-                HIGH_VOLATILITY: 'Biến động cao',
-                TRANSITION: 'Chuyển tiếp',
-                EARLY_TREND_UP: 'Tăng sớm',
-                EARLY_TREND_DOWN: 'Giảm sớm',
-                UNKNOWN: 'Không xác định',
-              }).map(([key, label]) => (
-                <span key={key} className={styles.legendItem}>
-                  <span className={styles.legendDot} style={{ background: regimeColor(key) }} />
-                  {label}
-                </span>
-              ))}
-            </div>
-            <div className={styles.toolbar} style={{ marginTop: 14, marginBottom: 0 }}>
-              <Button onClick={loadMore} disabled={loadingMore || !hasMore}>
-                {loadingMore ? 'Đang tải…' : `Tải thêm 500 nến (offset ${nextOffset})`}
-              </Button>
-              {total != null && (
-                <span className={styles.muted}>
-                  Đã tải {fmtNum(candles.length, 0)} / {fmtNum(total, 0)} nến (phân trang theo offset)
-                </span>
-              )}
-            </div>
-            {loadError && <Notice tone="danger">{loadError}</Notice>}
-          </>
-        )}
-      </Card>
 
-      <Card title="Giá mới nhất theo khung thời gian">
-        {latest.isLoading && <Loading />}
-        {latest.error && <ErrorState error={latest.error} />}
-        {latest.data && (
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>TF</th>
-                  <th>Thời gian (UTC)</th>
-                  <th className="num">Mở</th>
-                  <th className="num">Cao</th>
-                  <th className="num">Thấp</th>
-                  <th className="num">Đóng</th>
-                  <th className="num">Volume</th>
-                  <th className="num">Spread</th>
-                  <th>Nguồn</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(['M5', 'M15', 'H1'] as Timeframe[]).map((t) => {
-                  const c = latest.data?.latest[t];
-                  if (!c) return null;
-                  return (
-                    <tr key={t}>
-                      <td>
-                        <Badge tone="neutral">{t}</Badge>
-                      </td>
-                      <td className="mono">{fmtUtc(c.ts)}</td>
-                      <td className="num">{fmtPrice(c.open)}</td>
-                      <td className="num">{fmtPrice(c.high)}</td>
-                      <td className="num">{fmtPrice(c.low)}</td>
-                      <td className="num">{fmtPrice(c.close)}</td>
-                      <td className="num">{fmtNum(c.tick_volume, 0)}</td>
-                      <td className="num">{c.spread}</td>
-                      <td>
-                        <Badge tone={c.source === 'synthetic_demo' ? 'yellow' : 'teal'}>{c.source}</Badge>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            {candles.loading && candles.candles.length === 0 && (
+              <Loading label="Đang tải nến…" />
+            )}
+            {candles.error && candles.candles.length === 0 && (
+              <ErrorState error={candles.error} onRetry={candles.reload} />
+            )}
+            {!candles.loading && !candles.error && candles.candles.length === 0 && (
+              <EmptyState title="Chưa có dữ liệu nến" hint="Hãy thử khung thời gian khác" />
+            )}
+            {candles.candles.length > 0 && (
+              <>
+                <TradingChartContainer
+                  ref={chartRef}
+                  candles={candles.candles}
+                  timeframe={tf}
+                  height={540}
+                  hasMore={candles.hasMore}
+                  loadingMore={candles.loadingMore}
+                  onLoadMore={loadMore}
+                  showVolume={showVolume}
+                  showGrid={showGrid}
+                  showCrosshair={showCrosshair}
+                  autoScale={autoScale}
+                  showEma={showEma}
+                  showAiBands={showAiBands}
+                  showRefBands={showRefBands}
+                  aiBands={aiBands}
+                  refBands={refBands}
+                  barsByTime={barsByTime}
+                  segments={segments}
+                />
+                {barsLoading && overlaysOn && (
+                  <Notice tone="info">
+                    Đang tải dữ liệu run lịch sử (chế độ + reference)… dải regime sẽ hiện sau khi
+                    tải xong.
+                  </Notice>
+                )}
+                {barsError && overlaysOn && (
+                  <Notice tone="warn">
+                    Không thể tải dữ liệu chế độ theo từng nến: {String(barsError)}
+                  </Notice>
+                )}
+                {segError && showAiBands && (
+                  <Notice tone="warn">Không thể tải segments chế độ AI: {String(segError)}</Notice>
+                )}
+                <div className={styles.legend}>
+                  {(showAiBands || showRefBands) && (
+                    <>
+                      {Object.entries({
+                        TREND_UP: 'Xu hướng tăng',
+                        TREND_DOWN: 'Xu hướng giảm',
+                        SIDEWAYS: 'Đi ngang',
+                        EARLY_TREND_UP: 'Tăng sớm',
+                        EARLY_TREND_DOWN: 'Giảm sớm',
+                        TRANSITION: 'Chuyển tiếp',
+                        HIGH_VOLATILITY: 'Biến động cao',
+                      }).map(([key, label]) => (
+                        <span key={key} className={styles.legendItem}>
+                          <span className={styles.legendDot} style={{ background: regimeColor(key) }} />
+                          {label}
+                        </span>
+                      ))}
+                      {showAiBands && showRefBands && (
+                        <span className={styles.legendItem} style={{ color: 'var(--text-faint)' }}>
+                          (AI phía trên · Reference phía dưới)
+                        </span>
+                      )}
+                    </>
+                  )}
+                  <span className={styles.legendItem} style={{ color: 'var(--text-faint)' }}>
+                    Bấm vào vùng nền regime để xem chi tiết đoạn
+                  </span>
+                </div>
+              </>
+            )}
           </div>
-        )}
-      </Card>
+        </div>
 
-      <div className={styles.muted} style={{ fontSize: 12 }}>
-        Chế độ thị trường lấy từ lịch sử HMM (/regime/history), gán cho mỗi cây nến theo tín hiệu
-        gần nhất trước thời điểm của nến đó.
+        <RegimeSidePanel
+          regime={regime.data ?? null}
+          regimeError={regime.error}
+          regimeLoading={regime.isLoading}
+          lastBar={lastBar}
+          multiTf={multiTf.data ?? null}
+        />
+      </div>
+
+      <div className={`${pstyles.grid} ${pstyles.cols2}`}>
+        <RegimeTimelineStrip
+          bars={bars}
+          loading={barsLoading}
+          error={barsError}
+          mode="ai"
+          onFocus={handleStripFocus}
+          count={240}
+        />
+        <AiVsReferenceCard bars={bars} loading={barsLoading} error={barsError} />
+      </div>
+
+      <div className={`${pstyles.grid} ${pstyles.cols2}`}>
+        <MarketStatsCard
+          dashboard={dashboard.data ?? null}
+          loading={dashboard.isLoading}
+          error={dashboard.error}
+        />
+        <RecentTransitionsCard segments={segments} loading={segLoading} error={segError} />
+      </div>
+
+      <div className={pstyles.muted} style={{ fontSize: 12 }}>
+        Dải chế độ AI lấy từ run lịch sử mới nhất (#{doneRun?.id ?? '—'}, M15). Biểu đồ chỉ hiển thị
+        nến đã đóng — collector không gửi nến đang hình thành. Kéo sang trái để tải thêm lịch sử cũ
+        hơn (phân trang 5000 nến/trang). Múi giờ hiển thị: UTC.
       </div>
     </div>
   );

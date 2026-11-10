@@ -69,6 +69,96 @@ const ICON_PATHS: Record<string, ReactNode> = {
       <line x1="21" y1="12" x2="9" y2="12" />
     </>
   ),
+  menu: (
+    <>
+      <line x1="4" y1="6" x2="20" y2="6" />
+      <line x1="4" y1="12" x2="20" y2="12" />
+      <line x1="4" y1="18" x2="20" y2="18" />
+    </>
+  ),
+  close: (
+    <>
+      <line x1="6" y1="6" x2="18" y2="18" />
+      <line x1="18" y1="6" x2="6" y2="18" />
+    </>
+  ),
+  chevronLeft: <polyline points="14.5 6 8.5 12 14.5 18" />,
+  chevronRight: <polyline points="9.5 6 15.5 12 9.5 18" />,
+  zoomIn: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <line x1="21" y1="21" x2="16.5" y2="16.5" />
+      <line x1="11" y1="8" x2="11" y2="14" />
+      <line x1="8" y1="11" x2="14" y2="11" />
+    </>
+  ),
+  zoomOut: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <line x1="21" y1="21" x2="16.5" y2="16.5" />
+      <line x1="8" y1="11" x2="14" y2="11" />
+    </>
+  ),
+  maximize: (
+    <>
+      <polyline points="15 3 21 3 21 9" />
+      <polyline points="9 21 3 21 3 15" />
+      <line x1="21" y1="3" x2="14" y2="10" />
+      <line x1="3" y1="21" x2="10" y2="14" />
+    </>
+  ),
+  grid: (
+    <>
+      <line x1="3" y1="8" x2="21" y2="8" />
+      <line x1="3" y1="16" x2="21" y2="16" />
+      <line x1="8" y1="3" x2="8" y2="21" />
+      <line x1="16" y1="3" x2="16" y2="21" />
+    </>
+  ),
+  crosshair: (
+    <>
+      <circle cx="12" cy="12" r="2.2" />
+      <line x1="12" y1="3" x2="12" y2="9" />
+      <line x1="12" y1="15" x2="12" y2="21" />
+      <line x1="3" y1="12" x2="9" y2="12" />
+      <line x1="15" y1="12" x2="21" y2="12" />
+    </>
+  ),
+  volume: (
+    <>
+      <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+      <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+      <path d="M18.5 5.5a9.5 9.5 0 0 1 0 13" />
+    </>
+  ),
+  reset: (
+    <>
+      <path d="M3 12a9 9 0 1 0 2.6-6.4" />
+      <polyline points="3 4 3 9 8 9" />
+    </>
+  ),
+  fit: (
+    <>
+      <polyline points="4 21 4 14 9 14 9 21" />
+      <polyline points="20 21 20 14 15 14 15 21" />
+      <polyline points="4 3 4 10 9 10 9 3" />
+      <polyline points="20 3 20 10 15 10 15 3" />
+    </>
+  ),
+  layers: (
+    <>
+      <polygon points="12 2 2 7 12 12 22 7 12 2" />
+      <polyline points="2 12 12 17 22 12" />
+      <polyline points="2 17 12 22 22 17" />
+    </>
+  ),
+  barChart: (
+    <>
+      <line x1="4" y1="21" x2="4" y2="4" />
+      <rect x="8" y="10" width="4" height="11" />
+      <rect x="14" y="6" width="4" height="15" />
+    </>
+  ),
 };
 
 export function Icon({ name, size = 18 }: { name: string; size?: number }) {

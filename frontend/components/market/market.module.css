@@ -1,0 +1,446 @@
+/* Live Market page components */
+
+/* ---------- Ticker bar ---------- */
+
+.ticker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  background: var(--panel);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+}
+
+.tickerMain {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.tickerSymbol {
+  font-family: var(--mono);
+  font-weight: 800;
+  font-size: 16px;
+  letter-spacing: 0.02em;
+}
+
+.tickerBadge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-3);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.tickerPrice {
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.tickerChange {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tickerUp {
+  color: var(--status-ok);
+}
+
+.tickerDown {
+  color: var(--status-danger);
+}
+
+.tickerCell {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.tickerLabel {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
+}
+
+.tickerMeta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.tickerStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dotOk {
+  background: var(--status-ok);
+}
+
+.dotWarn {
+  background: var(--status-warn);
+}
+
+.dotDanger {
+  background: var(--status-danger);
+}
+
+.dotNeutral {
+  background: var(--text-disabled);
+}
+
+/* ---------- Page layout ---------- */
+
+.marketLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  gap: 14px;
+  align-items: start;
+}
+
+.chartColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.chartCard {
+  position: relative;
+}
+
+.chartCard :global(.fullscreenChart) {
+  background: var(--bg);
+}
+
+.chartHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.closedCandlesBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(139, 152, 169, 0.35);
+  color: var(--text-muted);
+  font-size: 11px;
+  background: var(--gray-soft);
+}
+
+.legend {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  padding: 6px 2px 0;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legendDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+/* ---------- Regime side panel ---------- */
+
+.sidePanel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.regimeHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.regimeMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.regimeMetaRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--border-soft);
+  font-size: 12.5px;
+}
+
+.regimeMetaRow > span:first-child {
+  color: var(--text-muted);
+}
+
+.permissionText {
+  font-weight: 600;
+}
+
+.permissionText[data-tone='up'] {
+  color: var(--status-ok);
+}
+
+.permissionText[data-tone='down'] {
+  color: var(--status-danger);
+}
+
+.reasonList {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.reasonChip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--orange-soft);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #ffd9a0;
+  font-size: 11px;
+}
+
+.probSection {
+  margin-bottom: 10px;
+}
+
+.probTitle {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.ctxGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ctxItem {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--border-soft);
+  font-size: 12.5px;
+}
+
+.ctxLabel {
+  color: var(--text-muted);
+}
+
+.ctxMuted {
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+}
+
+/* ---------- Timeline strip ---------- */
+
+.strip {
+  display: flex;
+  height: 34px;
+  gap: 1px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-elev);
+}
+
+.stripCell {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0.85;
+  transition: opacity 0.1s ease;
+}
+
+.stripCell:hover {
+  opacity: 1;
+  outline: 1px solid rgba(255, 255, 255, 0.5);
+  outline-offset: -1px;
+  z-index: 1;
+}
+
+.stripAxis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 5px;
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+  font-family: var(--mono);
+}
+
+/* ---------- AI vs Reference ---------- */
+
+.agreementHead {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.agreementValue {
+  font-family: var(--mono);
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.agreementSub {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.agreementBar {
+  display: flex;
+  height: 14px;
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-soft);
+}
+
+.agreementFill {
+  height: 100%;
+}
+
+.agreementLegend {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.agreementLegend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agreementDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+}
+
+/* ---------- Transitions ---------- */
+
+.transitionList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.transitionRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+
+.transitionDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.transitionRegime {
+  font-weight: 600;
+  min-width: 96px;
+}
+
+.transitionTime {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.transitionDur {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.transitionUp {
+  color: var(--status-ok);
+}
+
+.transitionDown {
+  color: var(--status-danger);
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 1200px) {
+  .marketLayout {
+    grid-template-columns: 1fr;
+  }
+
+  .sidePanel {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .sidePanel > :last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 720px) {
+  .sidePanel {
+    display: flex;
+  }
+}

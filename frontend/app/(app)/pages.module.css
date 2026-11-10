@@ -201,3 +201,15 @@
   height: 100%;
   border-radius: 3px;
 }
+
+.gaugesRowLocal {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 560px) {
+  .gaugesRowLocal {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { Suspense, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/components/AuthProvider';
 import { AppShell } from '@/components/AppShell';
@@ -24,5 +24,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
-  return <AppShell>{children}</AppShell>;
+  return (
+    <Suspense fallback={<Loading label="Đang tải giao diện…" />}>
+      <AppShell>{children}</AppShell>
+    </Suspense>
+  );
 }

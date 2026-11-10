@@ -1,0 +1,53 @@
+/* Regime visualization components (donut, etc.) */
+
+.donutWrap {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.donutCenterValue {
+  fill: var(--text-primary);
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.donutCenterLabel {
+  fill: var(--text-tertiary);
+  font-size: 8.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.donutLegend {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 190px;
+  flex: 1;
+}
+
+.donutLegendRow {
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.donutLegendDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+}
+
+.donutLegendLabel {
+  color: var(--text-muted);
+}
+
+.donutLegendValue {
+  color: var(--text);
+  font-size: 12px;
+}
