@@ -24,6 +24,7 @@ import type {
   ModelListResponse,
   ModelStatus,
   MultiTfStatsResponse,
+  OutcomeStats,
   PeriodsStatsResponse,
   QualityReportResponse,
   QualityRunResponse,
@@ -40,6 +41,7 @@ import type {
   TransitionsStatsResponse,
   TrendsStatsResponse,
   User,
+  VsReferenceStats,
 } from './types';
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
@@ -222,6 +224,10 @@ export const api = {
     apiFetch<CompareVsRunResponse>(`/history/runs/${runId}/compare?vs_run_id=${vsRunId}`),
   historyCompareReference: (runId: number) =>
     apiFetch<CompareVsReferenceResponse>(`/history/runs/${runId}/compare?vs_reference=true`),
+  historyVsReferenceStats: (runId: number) =>
+    apiFetch<VsReferenceStats>(`/history/runs/${runId}/stats/vs_reference`),
+  historyOutcomeStats: (runId: number) =>
+    apiFetch<OutcomeStats>(`/history/runs/${runId}/stats/outcomes`),
   startHistoryRun: (params: { regenerate?: boolean; symbol?: string } = {}) => {
     const q = new URLSearchParams();
     if (params.regenerate) q.set('regenerate', 'true');

@@ -411,6 +411,14 @@ export interface HistoryRunDetail extends HistoryRun {
   started_at: string | null;
 }
 
+export type ReferenceRegime =
+  | 'TREND_UP'
+  | 'TREND_DOWN'
+  | 'SIDEWAYS'
+  | 'TRANSITION'
+  | 'HIGH_VOLATILITY'
+  | 'UNKNOWN';
+
 export interface HistoryBar {
   ts: string;
   regime: Regime | null;
@@ -429,6 +437,14 @@ export interface HistoryBar {
   efficiency_ratio: number | null;
   h1_trend_context: number | null;
   m5_momentum: number | null;
+  // Reference engine (independent rule-based classifier, versioned) — per bar.
+  reference_regime: ReferenceRegime | null;
+  reference_reason: string | null;
+  di_gap: number | null;
+  ema_slope: number | null;
+  ref_channel_high: number | null;
+  ref_channel_low: number | null;
+  ref_displacement: number | null;
 }
 
 export interface HistoryBarsResponse {
@@ -642,6 +658,76 @@ export interface CompareVsReferenceResponse {
     trend_up: { windows: number; missed: number; mean_delay_bars: number; max_delay_bars: number };
     trend_down: { windows: number; missed: number; mean_delay_bars: number; max_delay_bars: number };
   };
+}
+
+// ---------- Reference engine comparison (stats/vs_reference) ----------
+
+export interface DetectionWindow {
+  windows: number;
+  missed: number;
+  mean_delay_bars: number | null;
+  max_delay_bars: number | null;
+}
+
+export interface DurationDisagreement {
+  n_intervals: number;
+  mean_abs_diff_minutes: number;
+}
+
+export interface VsReferenceStats {
+  run_id: number;
+  reference_version: string | null;
+  reference_config: Record<string, unknown> | null;
+  note: string | null;
+  overlap_bars: number;
+  agreement_rate: number;
+  classes: string[];
+  confusion_counts: Record<string, Record<string, number>>;
+  per_class: Record<
+    string,
+    { precision: number | null; recall: number | null; f1: number | null; support: number }
+  >;
+  macro_f1: number | null;
+  false_trend_rate: number | null;
+  false_sideways_rate: number | null;
+  missed_sideways_rate: number | null;
+  detection: {
+    trend_up: DetectionWindow;
+    trend_down: DetectionWindow;
+  };
+  boundaries: {
+    tolerance_bars: number;
+    ai_boundaries: number;
+    reference_boundaries: number;
+    matched: number;
+    missed: number;
+    extra: number;
+    mean_abs_distance_bars: number | null;
+  };
+  /** Regime -> either the flat mean (minutes) or a detailed interval object. */
+  duration_disagreement_minutes: Record<string, number | DurationDisagreement>;
+}
+
+// ---------- Future outcomes (stats/outcomes) ----------
+
+export interface OutcomeBucket {
+  n: number;
+  mean_fwd_return: number | null;
+  win_rate_pct: number | null;
+  mean_mfe: number | null;
+  mean_mae: number | null;
+  pct_up: number | null;
+  pct_down: number | null;
+  pct_flat: number | null;
+  pct_in_range: number | null;
+}
+
+export interface OutcomeStats {
+  run_id: number;
+  note: string | null;
+  horizons: number[];
+  /** Key: "ai_regime:TREND_UP" / "reference_regime:TREND_UP" -> horizon ("12") -> bucket. */
+  per_regime: Record<string, Record<string, OutcomeBucket>>;
 }
 
 export interface ScheduleRunResponse {

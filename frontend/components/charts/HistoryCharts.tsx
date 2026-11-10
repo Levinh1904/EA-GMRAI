@@ -277,6 +277,22 @@ const UP = '#22c55e';
 const DOWN = '#ef4444';
 const BAR_MS = 15 * 60 * 1000;
 
+export type TimelineStripMode = 'ai' | 'reference' | 'overlay' | 'disagreement';
+
+/** Client-built segment of the reference strip (grouped consecutive reference_regime). */
+export interface RefStripSegment {
+  start_ts: string;
+  end_ts: string;
+  regime: string;
+}
+
+/** Client-built segment of the disagreement strip (AI vs reference). */
+export interface DiffStripSegment {
+  start_ts: string;
+  end_ts: string;
+  agree: boolean;
+}
+
 export interface TimelineChartProps {
   bars: HistoryBar[];
   segments: HistorySegment[];
@@ -287,12 +303,72 @@ export interface TimelineChartProps {
   /** 1 = full resolution; >1 = render every n-th bar (visual only, segment strip stays exact). */
   density?: number;
   height?: number;
+  /** Which regime strip(s) to render below the candles. */
+  stripMode?: TimelineStripMode;
+  /** Reference segments (built client-side from per-bar reference_regime). */
+  refSegments?: RefStripSegment[];
+  /** Disagreement segments (built client-side from regime vs reference_regime). */
+  diffSegments?: DiffStripSegment[];
+  /** Called with the bar's ISO timestamp when a candle is clicked (curveNumber 0/1). */
+  onSelectBar?: (barTs: string) => void;
 }
 
 function segEndTs(s: HistorySegment): string {
   const endMs = new Date(s.end_ts).getTime();
   if (Number.isNaN(endMs)) return s.end_ts;
   return new Date(endMs + BAR_MS).toISOString();
+}
+
+/** Normalize a Plotly click x value ("2025-11-11 15:00", Date, ISO…) to an ISO timestamp. */
+function normalizeTs(raw: unknown): string | null {
+  if (raw instanceof Date) {
+    return Number.isNaN(raw.getTime()) ? null : raw.toISOString();
+  }
+  if (typeof raw === 'number') {
+    const d = new Date(raw);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  if (typeof raw === 'string') {
+    const s = raw.trim();
+    if (!s) return null;
+    // Already timezone-aware ISO — keep as-is.
+    if (/Z$|[+-]\d{2}:?\d{2}$/.test(s)) return s;
+    // "2025-11-11 15:00" / "2025-11-11 15:00:00[.xxx]" → UTC ISO.
+    const m = s.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)$/);
+    if (m) return `${m[1]}T${m[2]}Z`;
+    return s;
+  }
+  return null;
+}
+
+function makeStripTrace(
+  rows: Array<{ start_ts: string; end_ts: string; regime: string; label?: string }>,
+  yaxis: string,
+  name: string,
+  showLegend: boolean
+): Data {
+  return {
+    type: 'bar',
+    name,
+    x: rows.map((r) => r.start_ts),
+    y: rows.map(() => 1),
+    width: rows.map((r) => {
+      const startMs = new Date(r.start_ts).getTime();
+      const endMs = new Date(r.end_ts).getTime();
+      if (Number.isNaN(startMs) || Number.isNaN(endMs)) return BAR_MS;
+      return Math.max(endMs - startMs, 0) + BAR_MS;
+    }),
+    base: 0,
+    marker: { color: rows.map((r) => regimeColor(r.regime)), line: { width: 0 } },
+    hovertext: rows.map(
+      (r) => `${name} · ${regimeLabel(r.regime)} · ${r.start_ts} → ${r.end_ts}${r.label ? ` · ${r.label}` : ''}`
+    ),
+    hoverinfo: 'text',
+    showlegend: showLegend,
+    legendgroup: yaxis,
+    xaxis: 'x',
+    yaxis,
+  };
 }
 
 export function TimelineChart({
@@ -304,6 +380,10 @@ export function TimelineChart({
   onClearFocus,
   density = 1,
   height = 520,
+  stripMode = 'ai',
+  refSegments = [],
+  diffSegments = [],
+  onSelectBar,
 }: TimelineChartProps) {
   const sampled = useMemo<HistoryBar[]>(() => {
     if (!density || density <= 1) return bars;
@@ -319,6 +399,8 @@ export function TimelineChart({
   }, [segments]);
 
   const selected = selectedSegmentId != null ? (segById.get(selectedSegmentId) ?? null) : null;
+
+  const overlay = stripMode === 'overlay';
 
   const traces = useMemo<Data[]>(() => {
     const ts = sampled.map((b) => b.ts);
@@ -348,37 +430,64 @@ export function TimelineChart({
         b.confidence != null ? (b.confidence * 100).toFixed(1) : '—',
         b.hmm_state ?? '—',
         b.permission ?? '—',
+        regimeLabel(b.reference_regime),
+        b.reference_reason ?? '—',
       ]),
       hovertemplate:
-        '<b>%{x|%d/%m/%Y %H:%M} UTC</b><br>Mở %{open:,.2f} · Cao %{high:,.2f}<br>Thấp %{low:,.2f} · Đóng %{close:,.2f}<br>Regime: %{customdata[0]} · Conf %{customdata[1]}%<br>HMM state %{customdata[2]} · %{customdata[3]}<extra></extra>',
+        '<b>%{x|%d/%m/%Y %H:%M} UTC</b><br>Mở %{open:,.2f} · Cao %{high:,.2f}<br>Thấp %{low:,.2f} · Đóng %{close:,.2f}<br>AI: %{customdata[0]} · Conf %{customdata[1]}%<br>HMM state %{customdata[2]} · %{customdata[3]}<br>Reference: %{customdata[4]}<br><i>%{customdata[5]}</i><extra></extra>',
       xaxis: 'x',
       yaxis: 'y',
     };
-    const strip: Data = {
-      type: 'bar',
-      name: 'Regime',
-      x: segments.map((s) => s.start_ts),
-      y: segments.map(() => 1),
-      width: segments.map((s) => {
-        const startMs = new Date(s.start_ts).getTime();
-        const endMs = new Date(s.end_ts).getTime();
-        if (Number.isNaN(startMs) || Number.isNaN(endMs)) return BAR_MS;
-        return Math.max(endMs - startMs, 0) + BAR_MS;
-      }),
-      base: 0,
-      marker: { color: segments.map((s) => regimeColor(s.regime)), line: { width: 0 } },
-      customdata: segments.map((s) => s.id),
-      hovertext: segments.map(
-        (s) =>
-          `Seg #${s.segment_index} · ${regimeLabel(s.regime)} · ${s.duration_minutes} phút · ${s.bar_count} nến`
-      ),
-      hoverinfo: 'text',
-      showlegend: false,
-      xaxis: 'x',
-      yaxis: 'y2',
-    };
-    return [closeLine, candles, strip];
-  }, [sampled, segments]);
+    const out: Data[] = [closeLine, candles];
+
+    if (stripMode === 'ai' || stripMode === 'overlay') {
+      const aiStrip = makeStripTrace(
+        segments.map((s) => ({
+          start_ts: s.start_ts,
+          end_ts: s.end_ts,
+          regime: s.regime,
+          label: `Seg #${s.segment_index} · ${s.bar_count} nến`,
+        })),
+        'y2',
+        'AI',
+        overlay
+      );
+      aiStrip.customdata = segments.map((s) => s.id);
+      out.push(aiStrip);
+    }
+    if (stripMode === 'reference' || stripMode === 'overlay') {
+      out.push(makeStripTrace(refSegments, overlay ? 'y3' : 'y2', 'Reference', overlay));
+    }
+    if (stripMode === 'disagreement') {
+      out.push({
+        type: 'bar',
+        name: 'Bất đồng',
+        x: diffSegments.map((d) => d.start_ts),
+        y: diffSegments.map(() => 1),
+        width: diffSegments.map((d) => {
+          const startMs = new Date(d.start_ts).getTime();
+          const endMs = new Date(d.end_ts).getTime();
+          if (Number.isNaN(startMs) || Number.isNaN(endMs)) return BAR_MS;
+          return Math.max(endMs - startMs, 0) + BAR_MS;
+        }),
+        base: 0,
+        marker: {
+          color: diffSegments.map((d) =>
+            d.agree ? 'rgba(100,116,139,0.55)' : 'rgba(244,63,94,0.9)'
+          ),
+          line: { width: 0 },
+        },
+        hovertext: diffSegments.map((d) =>
+          d.agree ? 'Đồng thuận AI = Reference' : 'Bất đồng AI ≠ Reference'
+        ),
+        hoverinfo: 'text',
+        showlegend: false,
+        xaxis: 'x',
+        yaxis: 'y2',
+      });
+    }
+    return out;
+  }, [sampled, segments, refSegments, diffSegments, stripMode, overlay]);
 
   const layout = useMemo<Layout>(() => {
     const shapes: Shape[] = [];
@@ -397,6 +506,16 @@ export function TimelineChart({
         layer: 'below',
       });
     }
+    const yaxis: Layout['yaxis'] = overlay
+      ? { domain: [0.42, 1], side: 'right', gridcolor: GRID, tickformat: ',.1f', fixedrange: true }
+      : { domain: [0.3, 1], side: 'right', gridcolor: GRID, tickformat: ',.1f', fixedrange: true };
+    const yaxis2: Layout['yaxis'] = overlay
+      ? { domain: [0.2, 0.3], range: [0, 1], showticklabels: false, fixedrange: true, zeroline: false, showgrid: false }
+      : { domain: [0.03, 0.2], range: [0, 1], showticklabels: false, fixedrange: true, zeroline: false, showgrid: false };
+    const yaxis3: Layout['yaxis'] | undefined = overlay
+      ? { domain: [0.03, 0.13], range: [0, 1], showticklabels: false, fixedrange: true, zeroline: false, showgrid: false }
+      : undefined;
+
     return {
       paper_bgcolor: 'rgba(0,0,0,0)',
       plot_bgcolor: BG,
@@ -414,39 +533,37 @@ export function TimelineChart({
         rangeslider: { visible: true, thickness: 0.08, bgcolor: '#10141b', bordercolor: '#222a38' },
         ...(focusRange ? { range: focusRange } : {}),
       },
-      yaxis: {
-        domain: [0.3, 1],
-        side: 'right',
-        gridcolor: GRID,
-        tickformat: ',.1f',
-        fixedrange: true, // chỉ zoom trục thời gian; giá tự fit
-      },
-      yaxis2: {
-        domain: [0.03, 0.2],
-        range: [0, 1],
-        showticklabels: false,
-        fixedrange: true,
-        zeroline: false,
-        showgrid: false,
-      },
+      yaxis,
+      yaxis2,
+      ...(yaxis3 ? { yaxis3 } : {}),
       bargap: 0,
       barmode: 'overlay',
     };
-  }, [selected, focusRange]);
+  }, [selected, focusRange, overlay]);
 
   const handleClick = (ev: PlotMouseEvent) => {
     const pt = ev.points?.[0];
     if (!pt) return;
-    if (pt.curveNumber === 2) {
-      const id = typeof pt.customdata === 'number' ? pt.customdata : null;
-      onSelectSegment(id);
+    const cn = pt.curveNumber;
+    if (cn === 0 || cn === 1) {
+      // Candle (or close line) click → bar detail.
+      const x = normalizeTs(pt.x);
+      if (!x) return;
+      if (onSelectBar) {
+        onSelectBar(x);
+        return;
+      }
+      // Legacy fallback: select the segment containing the clicked bar.
+      const seg = segments.find((s) => x >= s.start_ts && x <= s.end_ts);
+      onSelectSegment(seg ? seg.id : null);
       return;
     }
-    const raw = pt.x;
-    const x = typeof raw === 'string' ? raw : raw instanceof Date ? raw.toISOString() : null;
-    if (!x) return;
-    const seg = segments.find((s) => x >= s.start_ts && x <= s.end_ts);
-    onSelectSegment(seg ? seg.id : null);
+    // Strip clicks: only the AI strip (curve 2 in ai/overlay mode) selects a segment.
+    const aiStripCurve = stripMode === 'ai' || stripMode === 'overlay' ? 2 : -1;
+    if (cn === aiStripCurve) {
+      const id = typeof pt.customdata === 'number' ? pt.customdata : null;
+      onSelectSegment(id);
+    }
   };
 
   return (
@@ -454,7 +571,7 @@ export function TimelineChart({
       data={traces}
       layout={layout}
       config={TIMELINE_CONFIG}
-      revision={sampled.length + (segments.length << 20)}
+      revision={sampled.length + (segments.length << 20) + refSegments.length + diffSegments.length}
       style={{ width: '100%', height }}
       useResizeHandler
       onClick={handleClick}

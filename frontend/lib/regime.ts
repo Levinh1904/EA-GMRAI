@@ -156,3 +156,33 @@ export const TF_SIGNAL_COLORS: Record<string, string> = {
   SIDEWAYS: '#8b98a9',
   NODATA: '#4b5563',
 };
+
+// Reference-engine disagreement overlay (Timeline "Bất đồng" mode).
+export const DISAGREEMENT_COLOR = '#f43f5e'; // rose — AI và Reference phân kỳ
+export const AGREEMENT_NEUTRAL_COLOR = '#64748b'; // slate — AI và Reference đồng thuận
+
+export function regimeShortLabel(regime: string | null | undefined): string {
+  if (!regime) return '—';
+  switch (regime) {
+    case 'TREND_UP':
+      return 'Tăng';
+    case 'TREND_DOWN':
+      return 'Giảm';
+    case 'SIDEWAYS':
+      return 'Đi ngang';
+    case 'HIGH_VOLATILITY':
+      return 'Biến động';
+    case 'TRANSITION':
+      return 'Chuyển tiếp';
+    case 'EARLY_TREND_UP':
+      return 'Tăng sớm';
+    case 'EARLY_TREND_DOWN':
+      return 'Giảm sớm';
+    case 'EARLY_TREND':
+      return 'Tín hiệu sớm';
+    case 'UNKNOWN':
+      return 'Không xác định';
+    default:
+      return regime;
+  }
+}

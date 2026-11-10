@@ -1,6 +1,6 @@
 # GMRAI — Project Status
 
-> Cập nhật: 2026-11-11 — **v0.2.0: Historical Market Regime Analyzer hoàn thành backend + chạy trên dữ liệu thật.**
+> Cập nhật: 2026-11-11 — **v0.3.0: Independent Reference Engine + AI vs Reference validation + Outcome evaluator hoàn thành (chạy trên dữ liệu FTMO thật).**
 
 ## 1. Trạng thái milestones
 
@@ -48,6 +48,26 @@
 - 2 bug backend do QA phát hiện đã sửa + regression tests (periods M/Q/Y,
   xlsx bars tz-naive).
 - Dữ liệu thật từ collector đang chảy về liên tục (99.656 nến ftmo_mt5).
+
+## 2.6. Independent Reference Engine & AI vs Reference (v0.3)
+
+- `ml/reference_engine.py` (ref_v1): rule-based độc lập, versioned, AST-tested
+  độc lập cấu trúc với HMM/RF/Operational Engine; tái lập lịch sử theo config.
+- `ml/outcome.py`: đánh giá tương lai 12/48/96 nến (fwd return/MFE/MAE/
+  direction/in-range) — không đổi prediction gốc (test khóa).
+- Lưu song song trên từng nến: AI label (immutable) + reference label +
+  triggered rule + indicators + versions; bảng `outcome_evaluations`.
+- AI vs Reference: agreement, confusion full-class, per-class+macro F1, false
+  trend/sideways rate, detection delay, boundary & duration disagreement.
+- Frontend: Timeline 4 chế độ dải (AI/Reference/Overlay/Bất đồng), panel
+  "Chi tiết thanh nến" (OHLC + AI probs + reference indicators + rule),
+  tab "So sánh Reference" + "Kết quả tương lai" (12 tabs tổng).
+- Kết quả thật (run #3, 1 năm FTMO-Demo): agreement 17.9%; F1 TREND_UP
+  0.548 / TREND_DOWN 0.520; false trend 21.8% / false sideways 20.8%;
+  boundaries 960/1958 matched (mean 1.04 nến); outcomes 12 nến: trend win
+  ~45-46% — model hiện tại chưa có edge trên tài khoản demo (báo cáo trung thực).
+- 115 tests xanh (13 test mới: independence, causality, reproducibility,
+  indicator math, outcomes, metrics).
 
 ## 3. Blocker còn lại (cần người dùng)
 

@@ -18,6 +18,8 @@ import SegmentsTab from './tabs/SegmentsTab';
 import TransitionsTab from './tabs/TransitionsTab';
 import MultiTfTab from './tabs/MultiTfTab';
 import CompareTab from './tabs/CompareTab';
+import ReferenceCompareTab from './tabs/ReferenceCompareTab';
+import OutcomesTab from './tabs/OutcomesTab';
 import ReportsTab from './tabs/ReportsTab';
 
 export type HistoryTabKey =
@@ -30,6 +32,8 @@ export type HistoryTabKey =
   | 'transitions'
   | 'multitf'
   | 'compare'
+  | 'reference'
+  | 'outcomes'
   | 'reports';
 
 const TABS: Array<{ key: HistoryTabKey; label: string }> = [
@@ -42,6 +46,8 @@ const TABS: Array<{ key: HistoryTabKey; label: string }> = [
   { key: 'transitions', label: 'Ma trận chuyển trạng thái' },
   { key: 'multitf', label: 'Đa khung thời gian' },
   { key: 'compare', label: 'So sánh mô hình' },
+  { key: 'reference', label: 'So sánh Reference' },
+  { key: 'outcomes', label: 'Kết quả tương lai' },
   { key: 'reports', label: 'Báo cáo & Xuất' },
 ];
 
@@ -243,6 +249,8 @@ export default function HistoryPage() {
             {tab === 'transitions' && <TransitionsTab runId={activeRun.id} />}
             {tab === 'multitf' && <MultiTfTab runId={activeRun.id} />}
             {tab === 'compare' && <CompareTab runId={activeRun.id} runs={runList} />}
+            {tab === 'reference' && <ReferenceCompareTab runId={activeRun.id} />}
+            {tab === 'outcomes' && <OutcomesTab runId={activeRun.id} />}
             {tab === 'reports' && <ReportsTab run={activeRun} runId={activeRun.id} />}
           </div>
 
