@@ -98,6 +98,25 @@ job_type, status, params_json, result_json, error, started_at, finished_at.
 ### system_logs
 level, component, message, meta_json, created_at. Index `(created_at)`.
 
+### regime_history_runs (Historical Analyzer)
+symbol, timeframe, hmm_model_version_id, rf_model_version_id, feature_version,
+data_source (`ftmo_mt5`/`synthetic_demo` — không trộn nguồn), status
+(pending/running/done/failed), config_json, bar_count, segment_count,
+data_start, data_end, error, timestamps.
+
+### regime_history_bars
+run_id, ts, regime, confidence, permission, hmm_state, hmm_probs_json,
+rf_probs_json, reason_codes_json, open/high/low/close, atr_ratio, adx_norm,
+efficiency_ratio, h1_trend_context, m5_momentum.
+Unique `(run_id, ts)`; index `(run_id, ts)`.
+
+### regime_segments
+run_id, segment_index, regime, start_ts, end_ts, bar_count, duration_minutes,
+start/end/high/low price, net_change, mfe, mae, atr_mean, adx_mean,
+efficiency_mean, hmm_probs_json, confidence_mean, model_version_id,
+split_reason (`data_gap`|null), range_touches_high/low.
+Index `(run_id, start_ts)`.
+
 ## 3. Migration
 
 - Alembic `backend/alembic`; migration đầu `0001_initial`.

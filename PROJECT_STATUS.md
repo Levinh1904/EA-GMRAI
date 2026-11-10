@@ -1,6 +1,6 @@
 # GMRAI — Project Status
 
-> Cập nhật cuối: 2026-11-09 — **M1–M13 hoàn thành. Bàn giao v0.1.0.**
+> Cập nhật: 2026-11-11 — **v0.2.0: Historical Market Regime Analyzer hoàn thành backend + chạy trên dữ liệu thật.**
 
 ## 1. Trạng thái milestones
 
@@ -33,6 +33,15 @@
 - Frontend: `npm run build` xanh; QA bằng trình duyệt thật (login → Overview,
   Market với 2 biểu đồ Plotly render, AI Regime với posterior/engine params/
   state mapping) — banner DEMO + cảnh báo stale hoạt động đúng.
+
+## 2.5. Module Historical Regime Analyzer (mới)
+
+- Backend hoàn chỉnh: schema (3 bảng), engine causal, 7 nhóm thống kê,
+  compare, export CSV/XLSX/PDF, 17 tests (101 tổng) — xem docs/HISTORY_MODULE.md.
+- Đã chạy trên **dữ liệu FTMO thật 1 năm** (run #1: 23.545 nến M15, 2.209 segments;
+  SIDEWAYS 80.2%, Early Trend ~69.5% thành công, delay ~3.7 nến M15).
+- Dữ liệu thật từ collector đang chảy về (99.656 nến ftmo_mt5).
+- Frontend trang /history (10 tabs): đang build bởi subagent.
 
 ## 3. Blocker còn lại (cần người dùng)
 

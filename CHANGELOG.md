@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.2.0] — 2026-11-11
+
+### Historical Market Regime Analyzer (module mới)
+- Schema: `regime_history_runs` / `regime_history_bars` / `regime_segments`
+  (2 Alembic migrations).
+- `app/ml/history.py`: causal inference toàn bộ lịch sử (tái dùng HmmFilter +
+  RF + Regime Engine), segmentation theo regime change + data gap (không gộp).
+- `app/ml/history_stats.py`: duration stats, trend analysis (mạnh/yếu theo
+  quantile, ghi rõ ngưỡng), sideways (touches/breakouts/false breakouts,
+  buckets), early trend evaluation vs reference labels, transition matrix,
+  daily/weekly/monthly/quarterly/yearly, multi-TF (M15 regime + H1/M5
+  feature signals), run-vs-run + vs-reference comparison.
+- API `/api/v1/history/*` (runs, bars, segments, 7 stats, compare, exports).
+- Export CSV / Excel (openpyxl) / PDF report (reportlab).
+- 17 tests mới (gồm leakage: truncation invariance của per-bar regime);
+  toàn suite 101 tests xanh.
+- Chạy thật trên 1 năm dữ liệu FTMO-Demo: 23.545 nến M15 → 2.209 segments
+  (kết quả chi tiết trong docs/HISTORY_MODULE.md).
+
+### Collector fixes (dữ liệu thật đã chảy về)
+- MetaTrader5 pin `>=5.0.5488` (bản 5.0.45 bị gỡ khỏi PyPI).
+- `ts` serialize ISO (fix JSON TypeError), gửi batch 5000 nến (giới hạn server 10k).
+- Chunked backfill 30 ngày tự thu hẹp khi MT5 từ chối (-2 Invalid params),
+  symbol_select, bỏ microsecond, tách Mt5FetchError khỏi reconnect.
+
 ## [0.1.0] — 2026-11-09
 
 ### M1 — Architecture & skeleton

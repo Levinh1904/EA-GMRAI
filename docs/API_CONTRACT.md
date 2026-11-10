@@ -103,6 +103,29 @@ endpoint (trừ ingestion dùng `X-API-Key` và health không cần auth).
 | GET | `/system/logs?limit` | JWT | system logs |
 | GET | `/health` hoặc `/api/v1/health` | — | `{"api","database","worker"}` |
 
+## Historical Regime Analyzer (module mới)
+
+| Method | Path | Auth | Mô tả |
+|---|---|---|---|
+| POST | `/history/run` | admin | chạy phân tích lịch sử (job nền) → `{"status","run_id"}` |
+| GET | `/history/runs` | JWT | danh sách runs |
+| GET | `/history/runs/{id}` | JWT | chi tiết run |
+| GET | `/history/runs/{id}/bars?limit&offset` | JWT | nến + regime từng thanh (causal) |
+| GET | `/history/runs/{id}/segments?regime&min_duration&max_duration&limit&offset` | JWT | danh sách regime segments |
+| GET | `/history/runs/{id}/segments/{seg_id}` | JWT | chi tiết segment |
+| GET | `/history/runs/{id}/stats/duration` | JWT | thống kê thời lượng mỗi regime |
+| GET | `/history/runs/{id}/stats/trends` | JWT | trend analysis + phân loại mạnh/yếu (quantile) |
+| GET | `/history/runs/{id}/stats/sideways` | JWT | sideways analysis + buckets + breakouts |
+| GET | `/history/runs/{id}/stats/early_trend?window=12` | JWT | đánh giá Early Trend vs reference labels |
+| GET | `/history/runs/{id}/stats/transitions` | JWT | ma trận chuyển trạng thái vận hành |
+| GET | `/history/runs/{id}/stats/periods?period=day\|week\|month\|quarter\|year` | JWT | tổng hợp theo chu kỳ |
+| GET | `/history/runs/{id}/stats/multi_tf` | JWT | so sánh M15 regime vs H1 context + M5 timing |
+| GET | `/history/runs/{id}/compare?vs_run_id=N` | JWT | so sánh 2 runs (agreement, confusion) |
+| GET | `/history/runs/{id}/compare?vs_reference=true` | JWT | đánh giá vs reference labels độc lập |
+| GET | `/history/runs/{id}/export?format=csv\|xlsx\|pdf&scope=segments\|bars\|report` | JWT | xuất CSV/Excel/PDF |
+
+Nguyên tắc module: per-bar regime được tính **causal** (filtered posterior, không smoothing); reference labels (realized forward returns) chỉ dùng để ĐÁNH GIÁ sau, không tạo tín hiệu; segments không gộp qua lỗ hổng dữ liệu (`split_reason=data_gap`); không trộn nguồn dữ liệu (run chọn `ftmo_mt5` nếu có, nếu không thì `synthetic_demo` được ghi rõ).
+
 ## Lỗi
 
 - 401 thiếu/sai token hoặc API key; 403 thiếu quyền; 404 không tìm thấy;
