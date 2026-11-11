@@ -27,7 +27,7 @@ import {
   regimeShortLabel,
 } from '@/lib/regime';
 import { useApi } from '@/lib/swr';
-import type { DashboardStats, DurationStatsResponse, MarketLatest, Timeframe } from '@/lib/types';
+import type { DashboardStats, DurationStatsResponse, MarketLatest, MarketTick, Timeframe } from '@/lib/types';
 import { REGIME_ORDER } from './history/shared';
 import styles from './pages.module.css';
 
@@ -42,6 +42,7 @@ export default function OverviewPage() {
     refreshInterval: 5000,
     revalidateOnFocus: true,
   });
+  const tick = useApi<MarketTick>('/market/tick', { refreshInterval: 2000 });
 
   // Regime distribution from the latest done history run (duration stats).
   const doneRun = useLatestDoneRun();
@@ -143,6 +144,27 @@ export default function OverviewPage() {
             </div>
           )}
         </Card>
+
+        {/* Live price banner (display-only tick) */}
+        {tick.data?.live && (
+          <div
+            className={styles.card}
+            style={{ display: 'flex', alignItems: 'baseline', gap: 14, padding: '14px 16px' }}
+          >
+            <Badge tone="success">LIVE</Badge>
+            <span style={{ fontSize: 26, fontWeight: 700 }} className="mono">
+              {tick.data.bid != null ? fmtPrice(tick.data.bid) : '—'}
+            </span>
+            <span className="mono" style={{ color: 'var(--muted)', fontSize: 12 }}>
+              Bid {tick.data.ask != null ? `/ Ask ${fmtPrice(tick.data.ask)}` : ''}
+              {tick.data.spread != null ? ` · spread ${tick.data.spread}` : ''}
+              {tick.data.age_seconds != null ? ` · ${tick.data.age_seconds.toFixed(0)}s trước` : ''}
+            </span>
+            <span style={{ color: 'var(--muted)', fontSize: 11, marginLeft: 'auto' }}>
+              Giá trực tiếp — chỉ hiển thị, không dùng cho phân tích AI.
+            </span>
+          </div>
+        )}
 
         {/* Market snapshot */}
         <Card title="Giá mới nhất" subtitle={latest.data?.symbol ?? 'XAUUSD'}>

@@ -9,6 +9,7 @@ import argparse
 import logging
 import signal
 import sys
+import threading
 import time
 from datetime import timedelta, timezone
 
@@ -62,6 +63,21 @@ def make_chunked_fetch(mt5_client, chunk_days: int = 30):
     return fetch
 
 
+def tick_worker(mt5_client, api, cfg):
+    """Gửi Bid/Ask trực tiếp mỗi tick_interval giây (chỉ hiển thị, không dùng phân tích)."""
+    while not _stop:
+        try:
+            tick = mt5_client.get_tick()
+            if tick:
+                api.send_tick(tick)
+        except Exception as e:
+            logger.warning("tick worker: %s", e)
+        for _ in range(max(1, int(cfg.tick_interval_seconds))):
+            if _stop:
+                break
+            time.sleep(1)
+
+
 def main(argv=None) -> int:
     args = parse_args(argv)
     cfg = load_config()
@@ -86,6 +102,8 @@ def main(argv=None) -> int:
     api = ApiClient(cfg.api_url, cfg.api_key, cfg.collector_id)
     checkpoint = CheckpointStore(cfg.checkpoint_dir)
     chunked_fetch = make_chunked_fetch(mt5_client)
+    threading.Thread(target=tick_worker, args=(mt5_client, api, cfg), daemon=True).start()
+    logger.info("Live tick feed started (interval=%ds)", cfg.tick_interval_seconds)
 
     connected = False
     retry_delay = 10

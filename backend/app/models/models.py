@@ -352,6 +352,23 @@ class OutcomeEvaluation(Base):
     reference_regime: Mapped[str | None] = mapped_column(String(24), nullable=True)
 
 
+class MarketTick(Base):
+    """Latest live price tick per symbol (display-only; analysis uses closed candles)."""
+    __tablename__ = "market_ticks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(16), unique=True, index=True)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    bid: Mapped[float] = mapped_column(Float)
+    ask: Mapped[float] = mapped_column(Float)
+    last: Mapped[float] = mapped_column(Float)
+    spread: Mapped[int] = mapped_column(Integer, default=0)
+    source: Mapped[str] = mapped_column(String(32), default="ftmo_mt5")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class RegimeSegment(Base):
     __tablename__ = "regime_segments"
     __table_args__ = (Index("ix_segment_run_start", "run_id", "start_ts"),)

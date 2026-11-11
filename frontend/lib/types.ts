@@ -106,6 +106,19 @@ export interface MarketLatest {
   latest: Partial<Record<Timeframe, Candle | null>>;
 }
 
+export interface MarketTick {
+  symbol: string;
+  bid: number | null;
+  ask: number | null;
+  last: number | null;
+  spread: number | null;
+  ts: string | null;
+  age_seconds: number | null;
+  stale: boolean;
+  live: boolean;
+  note?: string;
+}
+
 // ---------- Stats ----------
 
 export interface CandleStats {

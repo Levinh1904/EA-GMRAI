@@ -20,6 +20,7 @@ import type {
   IngestStatusResponse,
   LoginResponse,
   MarketLatest,
+  MarketTick,
   ModelDetail,
   ModelListResponse,
   ModelStatus,
@@ -157,6 +158,7 @@ export const api = {
     return apiFetch<CandlesResponse>(`/market/candles?${q.toString()}`);
   },
   marketLatest: () => apiFetch<MarketLatest>('/market/latest'),
+  marketTick: () => apiFetch<MarketTick>('/market/tick'),
 
   // Stats
   dashboard: () => apiFetch<DashboardStats>('/stats/dashboard'),

@@ -129,3 +129,16 @@ class Mt5Client:
             return self.initialize()
         except Mt5Unavailable:
             return False
+
+    def get_tick(self) -> dict | None:
+        """Latest Bid/Ask tick (display-only, not used for analysis)."""
+        info = mt5.symbol_info_tick(self.symbol)
+        if info is None:
+            return None
+        return {
+            "symbol": self.symbol,
+            "bid": float(info.bid),
+            "ask": float(info.ask),
+            "last": float(info.last) if info.last else float(info.bid),
+            "spread": int(getattr(info, "spread", 0) or 0),
+        }

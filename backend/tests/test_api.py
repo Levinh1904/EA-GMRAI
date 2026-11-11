@@ -154,3 +154,25 @@ def test_market_candles_single_source(client, admin_token):
     sources = {c["source"] for c in body["candles"]}
     assert len(sources) == 1, f"mixed sources: {sources}"
     assert body["source"] == "ftmo_mt5"
+
+
+def test_tick_feed(client, admin_token):
+    """POST tick (API key) -> GET tick trả giá live + age."""
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    r = client.get("/api/v1/market/tick", headers=headers)
+    assert r.status_code == 200 and r.json()["live"] is False  # chưa có tick
+
+    r = client.post("/api/v1/market/tick", json={"symbol": "XAUUSD", "bid": 4004.5, "ask": 4004.8, "spread": 3},
+                    headers={"X-API-Key": settings.api_key})
+    assert r.status_code == 200
+
+    r = client.get("/api/v1/market/tick", headers=headers)
+    body = r.json()
+    assert body["live"] is True
+    assert body["bid"] == 4004.5 and body["ask"] == 4004.8
+    assert body["age_seconds"] is not None and body["stale"] is False
+    assert body["note"]  # nhãn "chỉ hiển thị"
+
+    # tick yêu cầu API key khi POST
+    r = client.post("/api/v1/market/tick", json={"symbol": "XAUUSD", "bid": 1, "ask": 1})
+    assert r.status_code == 401

@@ -34,6 +34,7 @@ class CollectorConfig:
 
     # Sync behavior
     sync_interval_seconds: int = int(_env("GMRAI_SYNC_INTERVAL_SECONDS", "60"))
+    tick_interval_seconds: int = int(_env("GMRAI_TICK_INTERVAL_SECONDS", "1"))
     resync_bars: int = int(_env("GMRAI_RESYNC_BARS", "50"))
     max_batch: int = int(_env("GMRAI_MAX_BATCH", "5000"))
     history_days: int = int(_env("MT5_HISTORY_DAYS", "365"))

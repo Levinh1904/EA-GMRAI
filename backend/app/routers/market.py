@@ -1,14 +1,24 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.deps import get_current_user
-from app.models import MarketCandle, User
-from app.timeutil import ensure_utc
+from app.deps import get_current_user, ingest_identity
+from app.models import MarketCandle, MarketTick, User
+from app.timeutil import ensure_utc, utcnow
 
 market_router = APIRouter(prefix="/market", tags=["market"])
+
+
+class TickIn(BaseModel):
+    symbol: str = "XAUUSD"
+    bid: float
+    ask: float
+    last: float | None = None
+    spread: int = 0
+    ts: datetime | None = None
 
 
 def _active_source(db: Session, symbol: str, timeframe: str) -> str | None:
@@ -114,3 +124,57 @@ def latest(
             else None
         )
     return {"symbol": symbol, "latest": out}
+
+
+@market_router.post("/tick")
+def post_tick(
+    body: TickIn,
+    identity: dict = Depends(ingest_identity),
+    db: Session = Depends(get_db),
+):
+    """Collector posts the latest Bid/Ask tick (display-only, X-API-Key auth)."""
+    now = utcnow()
+    tick = db.query(MarketTick).filter(MarketTick.symbol == body.symbol).first()
+    if tick is None:
+        tick = MarketTick(symbol=body.symbol, ts=now, bid=body.bid, ask=body.ask,
+                          last=body.last if body.last is not None else body.bid, spread=body.spread)
+        db.add(tick)
+    else:
+        tick.ts = body.ts or now
+        tick.bid = body.bid
+        tick.ask = body.ask
+        tick.last = body.last if body.last is not None else body.bid
+        tick.spread = body.spread
+        tick.source = identity.get("collector_id", "ftmo_mt5")[:32]
+        tick.updated_at = now
+    db.commit()
+    return {"status": "ok", "symbol": body.symbol, "bid": body.bid, "ask": body.ask}
+
+
+@market_router.get("/tick")
+def get_tick(
+    symbol: str = Query("XAUUSD"),
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Latest live tick + age. Stale when older than a configurable threshold."""
+    from app.config import settings
+
+    tick = db.query(MarketTick).filter(MarketTick.symbol == symbol).first()
+    if tick is None:
+        return {"symbol": symbol, "bid": None, "ask": None, "last": None,
+                "ts": None, "age_seconds": None, "stale": True, "live": False}
+    ts = ensure_utc(tick.ts)
+    age = (utcnow() - ts).total_seconds()
+    return {
+        "symbol": symbol,
+        "bid": tick.bid,
+        "ask": tick.ask,
+        "last": tick.last,
+        "spread": tick.spread,
+        "ts": ts.isoformat(),
+        "age_seconds": round(age, 1),
+        "stale": age > settings.max_age_m5_minutes * 60,
+        "live": True,
+        "note": "Giá Bid/Ask trực tiếp — chỉ hiển thị, không dùng cho phân tích AI.",
+    }

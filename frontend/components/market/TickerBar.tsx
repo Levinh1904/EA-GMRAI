@@ -5,7 +5,8 @@
 // connection status and last update time (UTC). All values from the real API.
 
 import { fmtNum, fmtPrice, fmtUtc } from '@/lib/format';
-import type { Candle, FreshnessInfo, Timeframe } from '@/lib/types';
+import { useApi } from '@/lib/swr';
+import type { Candle, FreshnessInfo, MarketTick, Timeframe } from '@/lib/types';
 import styles from './market.module.css';
 
 export interface MarketStatusInfo {
@@ -61,6 +62,7 @@ export function TickerBar({
 }) {
   const tfMs = timeframe === 'M5' ? 300000 : timeframe === 'M15' ? 900000 : 3600000;
   const market = deriveMarketStatus(last?.ts, tfMs);
+  const tick = useApi<MarketTick>('/market/tick', { refreshInterval: 2000 });
 
   const change = last && prev ? last.close - prev.close : null;
   const changePct = change != null && prev && prev.close ? (change / prev.close) * 100 : null;
@@ -93,7 +95,7 @@ export function TickerBar({
         <span className={styles.tickerSymbol}>XAUUSD</span>
         <span className={styles.tickerBadge}>{timeframe}</span>
         <span className={`${styles.tickerPrice} ${dir}`}>
-          {last ? fmtPrice(last.close) : '—'}
+          {tick.data?.bid != null ? fmtPrice(tick.data.bid) : last ? fmtPrice(last.close) : '—'}
         </span>
         <span className={`${styles.tickerChange} ${dir}`}>
           {change == null
@@ -124,6 +126,15 @@ export function TickerBar({
           <span className={styles.tickerLabel}>Cập nhật</span>
           <span className="num">{last ? fmtUtc(last.ts) : '—'}</span>
         </span>
+        {tick.data?.live && (
+          <span className={styles.tickerCell} title={tick.data.note ?? ''}>
+            <span className={styles.tickerLabel}>Bid trực tiếp</span>
+            <span className="num" style={{ color: 'var(--accent)' }}>
+              LIVE · {tick.data.bid != null ? fmtPrice(tick.data.bid) : '—'}
+              {tick.data.age_seconds != null ? ` · ${tick.data.age_seconds.toFixed(0)}s` : ''}
+            </span>
+          </span>
+        )}
       </div>
     </div>
   );
