@@ -276,7 +276,8 @@ export default function ModelsPage() {
                             ONNX
                           </Button>
                         )}
-                        {isAdmin && row.status !== 'approved' && (
+                        {isAdmin &&
+                          ['candidate', 'rejected', 'validating', 'training'].includes(row.status) && (
                           <Button
                             size="sm"
                             variant="primary"
@@ -286,6 +287,16 @@ export default function ModelsPage() {
                             {busy?.versionId === row.version_id && busy.action === 'approved'
                               ? '…'
                               : 'Duyệt'}
+                          </Button>
+                        )}
+                        {isAdmin && row.status === 'archived' && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={busy != null}
+                            onClick={() => void changeStatus(row.version_id, 'candidate')}
+                          >
+                            Khôi phục (candidate)
                           </Button>
                         )}
                         {isAdmin && row.status !== 'rejected' && row.status !== 'archived' && (

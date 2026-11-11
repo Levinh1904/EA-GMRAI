@@ -14,7 +14,7 @@ ALLOWED_TRANSITIONS = {
     "candidate": {"approved", "rejected"},
     "approved": {"archived"},
     "rejected": {"archived", "candidate"},
-    "archived": set(),
+    "archived": {"candidate"},  # khôi phục để đánh giá lại — không bao giờ approved trực tiếp
     "training": {"validating", "candidate", "rejected"},
     "validating": {"candidate", "rejected"},
 }
