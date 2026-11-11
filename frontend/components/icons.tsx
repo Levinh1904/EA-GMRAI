@@ -35,6 +35,13 @@ const ICON_PATHS: Record<string, ReactNode> = {
     </>
   ),
   backtest: <polygon points="7 5 19 12 7 19" />,
+  replay: (
+    <>
+      <polyline points="4 10 4 4 10 4" />
+      <path d="M4 4a9 9 0 1 1-1.5 7" />
+      <polygon points="13 9 21 12 13 15" />
+    </>
+  ),
   compare: (
     <>
       <rect x="4" y="12" width="5" height="8" />

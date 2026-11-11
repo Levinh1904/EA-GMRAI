@@ -54,6 +54,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: '/regime', label: 'AI Regime', icon: 'regime' },
       { href: '/history', label: 'Lịch sử Regime', icon: 'history' },
       { href: '/history', query: 'tab=reference', label: 'So sánh Reference', icon: 'compare' },
+      { href: '/replay', label: 'Replay lịch sử', icon: 'replay' },
     ],
   },
   {

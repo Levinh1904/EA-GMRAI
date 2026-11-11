@@ -143,6 +143,19 @@ export const api = {
     apiFetch<CandlesResponse>(
       `/market/candles?timeframe=${timeframe}&limit=${limit}&offset=${offset}&symbol=XAUUSD`
     ),
+  candlesRange: (
+    timeframe: Timeframe,
+    opts: { from?: string; to?: string; limit?: number; offset?: number } = {}
+  ) => {
+    const q = new URLSearchParams();
+    q.set('timeframe', timeframe);
+    q.set('symbol', 'XAUUSD');
+    q.set('limit', String(opts.limit ?? 500));
+    q.set('offset', String(opts.offset ?? 0));
+    if (opts.from) q.set('from', opts.from);
+    if (opts.to) q.set('to', opts.to);
+    return apiFetch<CandlesResponse>(`/market/candles?${q.toString()}`);
+  },
   marketLatest: () => apiFetch<MarketLatest>('/market/latest'),
 
   // Stats

@@ -35,6 +35,14 @@ class HistoryJobError(RuntimeError):
 
 def _pick_source(db: Session, symbol: str) -> str:
     """Never mix brokers: prefer real FTMO data; fall back to labeled demo."""
+    has_ftmo = (
+        db.query(MarketCandle.id)
+        .filter(MarketCandle.symbol == symbol, MarketCandle.timeframe == "M15",
+                MarketCandle.source == "ftmo_mt5")
+        .first()
+    )
+    if has_ftmo:
+        return "ftmo_mt5"
     row = (
         db.query(MarketCandle.source)
         .filter(MarketCandle.symbol == symbol, MarketCandle.timeframe == "M15")

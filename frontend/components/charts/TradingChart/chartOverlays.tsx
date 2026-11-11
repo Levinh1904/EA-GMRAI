@@ -145,8 +145,94 @@ export class RegimeBandPrimitive implements ISeriesPrimitive<Time> {
 }
 
 // ---------------------------------------------------------------------------
-// Crosshair legend (OHLC readout)
+// Replay cursor primitive: a dashed vertical "now" line drawn across the pane.
 // ---------------------------------------------------------------------------
+
+class ReplayCursorRenderer implements IPrimitivePaneRenderer {
+  constructor(private readonly prim: ReplayCursorPrimitive) {}
+
+  draw(target: Parameters<IPrimitivePaneRenderer['draw']>[0]): void {
+    const prim = this.prim;
+    if (prim.cursorTime == null) return;
+    const timeScale = prim.timeScale;
+    if (!timeScale) return;
+
+    const range = timeScale.getVisibleRange();
+    if (!range) return;
+    const t = prim.cursorTime;
+    if (t < (range.from as number) || t > (range.to as number)) return;
+
+    target.useBitmapCoordinateSpace((scope) => {
+      const ctx = scope.context;
+      const x = timeScale.timeToCoordinate(t as Time);
+      if (x == null) return;
+      const hpx = scope.horizontalPixelRatio;
+      const vpx = scope.verticalPixelRatio;
+      const bx = Math.round(x * hpx);
+      const height = scope.mediaSize.height * vpx;
+
+      ctx.save();
+      ctx.strokeStyle = prim.color;
+      ctx.lineWidth = 1.5 * hpx;
+      ctx.setLineDash([5 * hpx, 4 * hpx]);
+      ctx.beginPath();
+      ctx.moveTo(bx, 0);
+      ctx.lineTo(bx, height);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Small filled triangle at the top of the line.
+      const triH = 7 * vpx;
+      ctx.fillStyle = prim.color;
+      ctx.beginPath();
+      ctx.moveTo(bx - triH, 0);
+      ctx.lineTo(bx + triH, 0);
+      ctx.lineTo(bx, triH);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    });
+  }
+}
+
+export class ReplayCursorPrimitive implements ISeriesPrimitive<Time> {
+  cursorTime: number | null = null;
+  color = '#f0b429';
+  timeScale: ReturnType<SeriesAttachedParameter<Time>['chart']['timeScale']> | null = null;
+  private requestUpdate: (() => void) | null = null;
+  private view: IPrimitivePaneView;
+
+  constructor() {
+    this.view = {
+      zOrder: () => 'top',
+      renderer: () => new ReplayCursorRenderer(this),
+    };
+  }
+
+  attached(param: SeriesAttachedParameter<Time>): void {
+    this.timeScale = param.chart.timeScale();
+    this.requestUpdate = param.requestUpdate;
+  }
+
+  detached(): void {
+    this.timeScale = null;
+    this.requestUpdate = null;
+  }
+
+  setCursor(cursorTime: number | null): void {
+    this.cursorTime = cursorTime;
+    this.requestUpdate?.();
+  }
+
+  setColor(color: string): void {
+    this.color = color;
+    this.requestUpdate?.();
+  }
+
+  paneViews(): readonly IPrimitivePaneView[] {
+    return [this.view];
+  }
+}
 
 export interface LegendBar {
   time: string; // ISO

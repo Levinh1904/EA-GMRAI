@@ -40,6 +40,7 @@ import {
   ChartOHLCLegend,
   RegimeBandPrimitive,
   RegimePopover,
+  ReplayCursorPrimitive,
   type Band,
   type BandDetail,
   type LegendBar,
@@ -53,6 +54,10 @@ export interface TradingChartHandle {
   fitContent: () => void;
   scrollToRealTime: () => void;
   focusRange: (fromSec: number, toSec: number) => void;
+  // Replay-mode imperative controls.
+  setCursor: (timeSec: number | null) => void;
+  getVisibleLogicalRange: () => { from: number; to: number } | null;
+  setVisibleLogicalRange: (from: number, to: number) => void;
 }
 
 export interface TradingChartProps {
@@ -74,6 +79,7 @@ export interface TradingChartProps {
   refBands?: Band[];
   barsByTime?: Map<number, HistoryBar> | null;
   segments?: HistorySegment[] | null;
+  replayMode?: boolean;
 }
 
 const TF_BAR_MS: Record<Timeframe, number> = { M5: 5 * 60 * 1000, M15: 15 * 60 * 1000, H1: 3600 * 1000 };
@@ -116,6 +122,7 @@ const TradingChartContainer = forwardRef<TradingChartHandle, TradingChartProps>(
       refBands,
       barsByTime,
       segments,
+      replayMode = false,
     } = props;
 
     const containerRef = useRef<HTMLDivElement | null>(null);
@@ -125,6 +132,8 @@ const TradingChartContainer = forwardRef<TradingChartHandle, TradingChartProps>(
     const emaSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
     const aiBandPrimRef = useRef<RegimeBandPrimitive | null>(null);
     const refBandPrimRef = useRef<RegimeBandPrimitive | null>(null);
+    const cursorPrimRef = useRef<ReplayCursorPrimitive | null>(null);
+    const prevCandleDataRef = useRef<CandlestickData<Time>[]>([]);
 
     const hasMoreRef = useRef(hasMore);
     const loadingMoreRef = useRef(loadingMore);
@@ -132,6 +141,7 @@ const TradingChartContainer = forwardRef<TradingChartHandle, TradingChartProps>(
     const timeframeRef = useRef(timeframe);
     const heightRef = useRef(height);
     const autoScaleRef = useRef(autoScale);
+    const replayModeRef = useRef(replayMode);
 
     useEffect(() => {
       hasMoreRef.current = hasMore;
@@ -151,6 +161,9 @@ const TradingChartContainer = forwardRef<TradingChartHandle, TradingChartProps>(
     useEffect(() => {
       autoScaleRef.current = autoScale;
     }, [autoScale]);
+    useEffect(() => {
+      replayModeRef.current = replayMode;
+    }, [replayMode]);
 
     // Crosshair legend state (updated at most every frame via rAF).
     const [legend, setLegend] = useState<LegendBar | null>(null);
@@ -294,14 +307,17 @@ const TradingChartContainer = forwardRef<TradingChartHandle, TradingChartProps>(
       });
       const aiPrim = new RegimeBandPrimitive();
       const refPrim = new RegimeBandPrimitive();
+      const cursorPrim = new ReplayCursorPrimitive();
       candleSeries.attachPrimitive(aiPrim);
       candleSeries.attachPrimitive(refPrim);
+      candleSeries.attachPrimitive(cursorPrim);
 
       chartRef.current = chart;
       candleSeriesRef.current = candleSeries;
       emaSeriesRef.current = emaSeries;
       aiBandPrimRef.current = aiPrim;
       refBandPrimRef.current = refPrim;
+      cursorPrimRef.current = cursorPrim;
 
       // Crosshair move → legend (rAF-debounced).
       let raf = 0;
@@ -428,6 +444,7 @@ const TradingChartContainer = forwardRef<TradingChartHandle, TradingChartProps>(
         ro.disconnect();
         candleSeries.detachPrimitive(aiPrim);
         candleSeries.detachPrimitive(refPrim);
+        candleSeries.detachPrimitive(cursorPrim);
         chart.remove();
         chartRef.current = null;
         candleSeriesRef.current = null;
@@ -435,6 +452,7 @@ const TradingChartContainer = forwardRef<TradingChartHandle, TradingChartProps>(
         volumeSeriesRef.current = null;
         aiBandPrimRef.current = null;
         refBandPrimRef.current = null;
+        cursorPrimRef.current = null;
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -463,9 +481,51 @@ const TradingChartContainer = forwardRef<TradingChartHandle, TradingChartProps>(
     // Data updates — setData only, no series re-creation.
     // -----------------------------------------------------------------------
     useEffect(() => {
-      candleSeriesRef.current?.setData(candleData);
-      emaSeriesRef.current?.setData(emaData);
-      if (volumeSeriesRef.current) volumeSeriesRef.current.setData(volumeData);
+      const ser = candleSeriesRef.current;
+      if (!ser) return;
+
+      if (!replayModeRef.current) {
+        ser.setData(candleData);
+        emaSeriesRef.current?.setData(emaData);
+        if (volumeSeriesRef.current) volumeSeriesRef.current.setData(volumeData);
+        prevCandleDataRef.current = candleData;
+        return;
+      }
+
+      // Replay mode: reconcile the cursor-bounded window. A one-bar suffix
+      // extension is applied via `update` (no re-init, no scroll jump); any
+      // other change (shrink / prepend / reload) uses `setData` and best-effort
+      // restores the previous visible logical range.
+      const prev = prevCandleDataRef.current;
+      let isAppend = prev.length > 0 && candleData.length === prev.length + 1;
+      if (isAppend) {
+        for (let i = 0; i < prev.length; i++) {
+          if (prev[i].time !== candleData[i].time) {
+            isAppend = false;
+            break;
+          }
+        }
+      }
+
+      if (isAppend) {
+        ser.update(candleData[candleData.length - 1]);
+        if (volumeSeriesRef.current && volumeData.length > 0) {
+          volumeSeriesRef.current.update(volumeData[volumeData.length - 1]);
+        }
+        if (emaSeriesRef.current && emaData.length > 0) {
+          emaSeriesRef.current.update(emaData[emaData.length - 1]);
+        }
+      } else {
+        const ts = chartRef.current?.timeScale();
+        const range = ts?.getVisibleLogicalRange() ?? null;
+        ser.setData(candleData);
+        emaSeriesRef.current?.setData(emaData);
+        if (volumeSeriesRef.current) volumeSeriesRef.current.setData(volumeData);
+        if (range && range.from != null && range.to != null && ts && candleData.length > 0) {
+          ts.setVisibleLogicalRange({ from: range.from, to: range.to });
+        }
+      }
+      prevCandleDataRef.current = candleData;
     }, [candleData, emaData, volumeData]);
 
     // Regime band overlays.
@@ -565,6 +625,9 @@ const TradingChartContainer = forwardRef<TradingChartHandle, TradingChartProps>(
     useEffect(() => {
       const chart = chartRef.current;
       if (!chart) return;
+      setLegend(null);
+      setPopover(null);
+      if (replayModeRef.current) return; // replay page drives the view after reload
       const ts = chart.timeScale();
       ts.applyOptions({ barSpacing: DEFAULT_BAR_SPACING });
       ts.scrollToRealTime();
@@ -578,8 +641,6 @@ const TradingChartContainer = forwardRef<TradingChartHandle, TradingChartProps>(
           ts.setVisibleRange({ from: first, to: last as Time });
         }
       }
-      setLegend(null);
-      setPopover(null);
     }, [timeframe]);
 
     // -----------------------------------------------------------------------
@@ -632,10 +693,50 @@ const TradingChartContainer = forwardRef<TradingChartHandle, TradingChartProps>(
       });
     }, []);
 
+    // -----------------------------------------------------------------------
+    // Replay-mode imperative controls.
+    // -----------------------------------------------------------------------
+
+    const setCursor = useCallback((timeSec: number | null) => {
+      cursorPrimRef.current?.setCursor(timeSec);
+    }, []);
+
+    const getVisibleLogicalRange = useCallback(() => {
+      const range = chartRef.current?.timeScale().getVisibleLogicalRange();
+      if (range && range.from != null && range.to != null) {
+        return { from: range.from, to: range.to };
+      }
+      return null;
+    }, []);
+
+    const setVisibleLogicalRange = useCallback((from: number, to: number) => {
+      chartRef.current?.timeScale().setVisibleLogicalRange({ from, to });
+    }, []);
+
     useImperativeHandle(
       ref,
-      () => ({ zoomIn, zoomOut, reset, fitContent, scrollToRealTime, focusRange }),
-      [zoomIn, zoomOut, reset, fitContent, scrollToRealTime, focusRange]
+      () => ({
+        zoomIn,
+        zoomOut,
+        reset,
+        fitContent,
+        scrollToRealTime,
+        focusRange,
+        setCursor,
+        getVisibleLogicalRange,
+        setVisibleLogicalRange,
+      }),
+      [
+        zoomIn,
+        zoomOut,
+        reset,
+        fitContent,
+        scrollToRealTime,
+        focusRange,
+        setCursor,
+        getVisibleLogicalRange,
+        setVisibleLogicalRange,
+      ]
     );
 
     const legendLabel = `XAUUSD · ${timeframe}`;

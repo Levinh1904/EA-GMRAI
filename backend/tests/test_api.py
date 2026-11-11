@@ -137,3 +137,20 @@ def test_models_list_empty(client, admin_token):
 def test_system_status(client, admin_token):
     r = client.get("/api/v1/system/status", headers={"Authorization": f"Bearer {admin_token}"})
     assert r.status_code == 200
+
+
+def test_market_candles_single_source(client, admin_token):
+    """Khi có nhiều nguồn (ftmo + synthetic), /market/candles chỉ trả 1 nguồn."""
+    headers = {"Authorization": f"Bearer {admin_token}", "X-API-Key": settings.api_key}
+    # ftmo nến tại :00
+    client.post("/api/v1/ingest/candles?timeframe=M15", json={"candles": _candles(3, "M15", start=datetime(2026, 2, 3, 12, 0, tzinfo=timezone.utc))}, headers=headers)
+    # synthetic nến lệch +4 phút (mô phỏng demo data đan xen)
+    synth = _candles(3, "M15", start=datetime(2026, 2, 3, 12, 4, tzinfo=timezone.utc))
+    for c in synth:
+        c["source"] = "synthetic_demo"
+    client.post("/api/v1/ingest/candles?timeframe=M15", json={"candles": synth}, headers=headers)
+    r = client.get("/api/v1/market/candles?timeframe=M15&limit=100", headers={"Authorization": f"Bearer {admin_token}"})
+    body = r.json()
+    sources = {c["source"] for c in body["candles"]}
+    assert len(sources) == 1, f"mixed sources: {sources}"
+    assert body["source"] == "ftmo_mt5"
