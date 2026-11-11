@@ -60,8 +60,8 @@ export default function MarketPage() {
 
   // ---- Data ---------------------------------------------------------------
   const candles = useCandlesPaged(tf);
-  const regime = useApi<RegimeLatest>('/regime/latest', { refreshInterval: 30000 });
-  const dashboard = useApi<DashboardStats>('/stats/dashboard', { refreshInterval: 30000 });
+  const regime = useApi<RegimeLatest>('/regime/latest', { refreshInterval: 15000 });
+  const dashboard = useApi<DashboardStats>('/stats/dashboard', { refreshInterval: 10000 });
 
   const doneRun = useLatestDoneRun();
   const { segments, isLoading: segLoading, error: segError } = useRunSegments(doneRun?.id ?? null);

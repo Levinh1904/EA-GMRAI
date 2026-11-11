@@ -36,8 +36,8 @@ export default function DataPage() {
   const [qualityResult, setQualityResult] = useState<QualityRunResponse | null>(null);
   const [qualityError, setQualityError] = useState<string | null>(null);
 
-  const dashboard = useApi<DashboardStats>('/stats/dashboard', { refreshInterval: 60000 });
-  const syncs = useApi<IngestStatusResponse>('/ingest/status?limit=20', { refreshInterval: 30000 });
+  const dashboard = useApi<DashboardStats>('/stats/dashboard', { refreshInterval: 15000 });
+  const syncs = useApi<IngestStatusResponse>('/ingest/status?limit=20', { refreshInterval: 10000 });
   const reports = useApi<QualityReportResponse>('/quality/reports?limit=20', {
     refreshInterval: 60000,
   });

@@ -12,7 +12,11 @@ import {
 } from '@/lib/regime';
 import { useApi } from '@/lib/swr';
 import type { HistoryBar, HistoryRun, HistorySegment, VsReferenceStats } from '@/lib/types';
-import type { DiffStripSegment, RefStripSegment, TimelineStripMode } from '@/components/charts/HistoryCharts';
+import type {
+  DiffStripSegment,
+  RefStripSegment,
+  TimelineStripMode,
+} from '@/components/charts/TradingChart/HistoryTimelineChart';
 import { useAllSegments, useRunBars } from '@/components/charts/TradingChart/useChartData';
 import { useHmmStateMap } from '../shared';
 import { segmentInRange, type HistoryFilters } from '../filters';
@@ -21,20 +25,14 @@ import { SegmentDetailPanel } from './SegmentDetailPanel';
 import styles from '../../pages.module.css';
 import hstyles from '../history.module.css';
 
-const TimelineChart = dynamic(
-  () => import('@/components/charts/HistoryCharts').then((m) => m.TimelineChart),
+const HistoryTimelineChart = dynamic(
+  () =>
+    import('@/components/charts/TradingChart/HistoryTimelineChart').then((m) => m.default),
   {
     ssr: false,
     loading: () => <Loading label="Đang khởi tạo biểu đồ timeline…" />,
   }
 );
-
-const DENSITY_OPTIONS = [
-  { value: '1', label: 'Đầy đủ' },
-  { value: '2', label: '1/2 nến' },
-  { value: '4', label: '1/4 nến' },
-  { value: '8', label: '1/8 nến' },
-];
 
 const STRIP_MODE_OPTIONS: Array<{ value: TimelineStripMode; label: string }> = [
   { value: 'ai', label: 'AI' },
@@ -86,7 +84,6 @@ export default function TimelineTab({
   const [selectedBarTs, setSelectedBarTs] = useState<string | null>(null);
   const [focusRange, setFocusRange] = useState<[string, string] | null>(null);
   const [activePreset, setActivePreset] = useState<string>('Toàn bộ');
-  const [density, setDensity] = useState<string>('2');
   const [stripMode, setStripMode] = useState<TimelineStripMode>('ai');
   const hmmStateMap = useHmmStateMap(run.hmm_model_version_id);
 
@@ -182,7 +179,6 @@ export default function TimelineTab({
   }, [segments, filters.start, filters.end]);
 
   const showList = useMemo(() => filteredSegments.slice(-400), [filteredSegments]);
-  const densityNum = Math.max(1, parseInt(density, 10) || 1);
 
   function applyRangePreset(label: string, days: number | null) {
     if (days == null) {
@@ -207,10 +203,11 @@ export default function TimelineTab({
   return (
     <div className={styles.stack}>
       <Notice tone="info">
-        🖱 <b>Lăn chuột</b>: phóng to/thu nhỏ · <b>Kéo chuột</b>: vẽ vùng phóng to · <b>Kéo ngang
-        (kéo biểu đồ)</b>: di chuyển · <b>Nhấp đúp</b>: đặt lại toàn bộ. Bấm vào dải regime hoặc một
-        dòng trong danh sách để chọn segment — biểu đồ tự zoom tới segment đó. <b>Bấm vào cây nến</b>{' '}
-        để xem chi tiết thanh nến (OHLC, AI, Reference).
+        🖱 <b>Lăn chuột</b>: phóng to/thu nhỏ · <b>Kéo biểu đồ</b>: di chuyển (pan) · <b>Kéo trục giá</b>:
+        co giãn trục giá · <b>Nhấp đúp</b>: đặt lại toàn bộ. Di chuột để xem đường crosshair dọc + OHLC
+        (O/H/L/C/Vol/Regime/Reference). Bấm vào dải regime hoặc một dòng trong danh sách để chọn segment
+        — biểu đồ tự zoom tới segment đó. <b>Bấm vào cây nến</b> để xem chi tiết thanh nến (OHLC, AI,
+        Reference).
       </Notice>
 
       <div className={styles.toolbar} style={{ marginBottom: 10 }}>
@@ -246,9 +243,8 @@ export default function TimelineTab({
         right={
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
             <Segmented options={STRIP_MODE_OPTIONS} value={stripMode} onChange={setStripMode} />
-            <Segmented options={DENSITY_OPTIONS} value={density} onChange={setDensity} />
             <span className={styles.muted} style={{ fontSize: 11 }}>
-              Chế độ dải regime · giảm mẫu giúp zoom mượt
+              Chế độ dải regime (lightweight-charts · không cần giảm mẫu)
             </span>
           </div>
         }
@@ -271,30 +267,21 @@ export default function TimelineTab({
         {!barsLoading && bars.length > 0 && (
           <>
             <div className={styles.chartBox}>
-              <TimelineChart
+              <HistoryTimelineChart
                 bars={bars}
                 segments={segments}
-                selectedSegmentId={selectedId}
                 focusRange={focusRange}
                 onSelectSegment={(id) => {
                   const seg = segments.find((s) => s.id === id) ?? null;
                   selectSegment(seg);
                 }}
-                onClearFocus={() => setFocusRange(null)}
                 onSelectBar={handleSelectBar}
                 stripMode={stripMode}
                 refSegments={refSegments}
                 diffSegments={diffSegments}
-                density={densityNum}
                 height={560}
               />
             </div>
-            {densityNum > 1 && (
-              <div className={styles.muted} style={{ fontSize: 12, marginTop: 6 }}>
-                Chế độ giảm mẫu 1/{densityNum} chỉ áp dụng cho nến hiển thị (tăng tốc render) — dải
-                regime và overlay segment vẫn chính xác tuyệt đối.
-              </div>
-            )}
             {stripMode === 'disagreement' && (
               <div className={styles.toolbar} style={{ marginTop: 10, marginBottom: 0, justifyContent: 'center' }}>
                 <span className={styles.legendItem}>

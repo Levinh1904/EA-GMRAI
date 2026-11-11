@@ -195,8 +195,8 @@ def compute_latest_regime(db: Session, symbol: str = "XAUUSD") -> dict:
     }
 
 
-def regime_latest(db: Session, symbol: str = "XAUUSD") -> dict:
-    """Public payload: never raises — degraded states return UNKNOWN."""
+def _compute_regime_payload(db: Session, symbol: str) -> dict:
+    """Full inference payload; never raises (degraded -> UNKNOWN)."""
     try:
         return compute_latest_regime(db, symbol)
     except InferenceUnavailable as e:
@@ -232,3 +232,27 @@ def regime_latest(db: Session, symbol: str = "XAUUSD") -> dict:
             "permission": "NO_TRADE",
             "degraded_reason": str(e),
         }
+
+
+# Short TTL cache: regime can only change when a new M15 candle closes, so
+# repeated polls (fast dashboard refresh) reuse the last inference instead of
+# re-running the full pipeline and re-writing a prediction row each time.
+_REGIME_CACHE: dict = {"key": None, "t": 0.0, "payload": None}
+_REGIME_CACHE_TTL = 15.0
+
+
+def regime_latest(db: Session, symbol: str = "XAUUSD") -> dict:
+    """Public payload with a short TTL cache keyed on the latest M15 candle."""
+    import time as _time
+
+    latest_ts = _latest_candle_ts(db, "M15", symbol)
+    key = (symbol, latest_ts.isoformat() if latest_ts else None)
+    now = _time.monotonic()
+    if _REGIME_CACHE["key"] == key and now - _REGIME_CACHE["t"] < _REGIME_CACHE_TTL \
+            and _REGIME_CACHE["payload"] is not None:
+        return _REGIME_CACHE["payload"]
+    payload = _compute_regime_payload(db, symbol)
+    _REGIME_CACHE["key"] = key
+    _REGIME_CACHE["t"] = now
+    _REGIME_CACHE["payload"] = payload
+    return payload

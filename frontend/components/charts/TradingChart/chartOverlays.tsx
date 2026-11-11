@@ -30,6 +30,10 @@ export const REGIME_BAND_FILL: Record<string, string> = {
   TRANSITION: 'rgba(168, 85, 247, 0.12)',
   HIGH_VOLATILITY: 'rgba(245, 158, 11, 0.16)',
   UNKNOWN: 'rgba(75, 85, 99, 0)',
+  // Disagreement strip (History "Bất đồng" mode) — higher-alpha by design so
+  // the agree/disagree band is clearly readable as a single strip.
+  AGREE: 'rgba(100, 116, 139, 0.55)',
+  DISAGREE: 'rgba(244, 63, 94, 0.9)',
 };
 
 export function bandFill(regime: string): string {
@@ -303,6 +307,18 @@ export function ChartOHLCLegend({ bar, label }: { bar: LegendBar | null; label: 
         <span className={styles.ohlcCell}>
           <span className={styles.ohlcRegimeDot} style={{ background: regimeColor(bar.regime) }} />
           <span style={{ color: regimeColor(bar.regime) }}>{regimeLabel(bar.regime)}</span>
+        </span>
+      )}
+      {bar.refRegime && (
+        <span className={styles.ohlcCell}>
+          <span
+            className={styles.ohlcRegimeDot}
+            style={{ background: regimeColor(bar.refRegime), borderRadius: 3 }}
+          />
+          <span className={styles.ohlcKey} style={{ color: '#c084fc' }}>
+            Ref
+          </span>
+          <span style={{ color: regimeColor(bar.refRegime) }}>{regimeLabel(bar.refRegime)}</span>
         </span>
       )}
       <span className={styles.ohlcTime}>{fmtUtc(bar.time)}</span>

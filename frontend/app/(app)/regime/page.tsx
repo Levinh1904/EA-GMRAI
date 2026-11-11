@@ -161,7 +161,7 @@ function VariantResultsTable({ results }: { results: Record<string, VariantResul
 
 export default function RegimePage() {
   const latest = useApi<RegimeLatest>('/regime/latest', {
-    refreshInterval: 30000,
+    refreshInterval: 15000,
     revalidateOnFocus: true,
   });
   const history = useApi<RegimeHistoryResponse>('/regime/history?limit=500', {

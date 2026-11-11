@@ -35,11 +35,11 @@ const TIMEFRAMES: Timeframe[] = ['M5', 'M15', 'H1'];
 
 export default function OverviewPage() {
   const { data, error, isLoading, mutate } = useApi<DashboardStats>('/stats/dashboard', {
-    refreshInterval: 30000,
+    refreshInterval: 10000,
     revalidateOnFocus: true,
   });
   const latest = useApi<MarketLatest>('/market/latest', {
-    refreshInterval: 30000,
+    refreshInterval: 5000,
     revalidateOnFocus: true,
   });
 
@@ -47,7 +47,7 @@ export default function OverviewPage() {
   const doneRun = useLatestDoneRun();
   const duration = useApi<DurationStatsResponse>(
     doneRun ? `/history/runs/${doneRun.id}/stats/duration` : null,
-    { refreshInterval: 120000, revalidateOnFocus: false }
+    { refreshInterval: 60000, revalidateOnFocus: false }
   );
 
   if (isLoading) return <Loading label="Đang tải tổng quan…" />;

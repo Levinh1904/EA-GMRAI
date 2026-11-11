@@ -379,7 +379,7 @@ function DemoBanner() {
 }
 
 function Footer() {
-  const { data } = useApi<RegimeLatest>('/regime/latest', { refreshInterval: 60000 });
+  const { data } = useApi<RegimeLatest>('/regime/latest', { refreshInterval: 15000 });
   const source = data?.data_source ?? '—';
   return (
     <footer className={styles.footer}>
