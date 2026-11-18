@@ -29,22 +29,16 @@ interface NoticeState {
 
 function keyMetric(row: ModelRow): string {
   const m = row.metrics;
-  if (row.model_type === 'trade_ens') {
-    const walk = m?.walk_forward as { oos_metrics?: { mean_pnl?: number; win_rate?: number } } | undefined;
-    const oos = walk?.oos_metrics;
-    if (oos?.mean_pnl != null) {
-      return `OOS mean ${fmtNum(oos.mean_pnl, 3)} · win ${fmtNum((oos.win_rate ?? 0) * 100, 1)}%`;
-    }
+  const walk = m?.walk_forward as { oos_metrics?: { mean_pnl?: number; win_rate?: number } } | undefined;
+  const oos = walk?.oos_metrics;
+  if (oos?.mean_pnl != null) {
+    return `OOS mean ${fmtNum(oos.mean_pnl, 3)} · win ${fmtNum((oos.win_rate ?? 0) * 100, 1)}%`;
   }
-  if (m?.test_macro_f1 != null) return `F1 ${fmtNum(m.test_macro_f1, 4)}`;
-  const combined = m?.variant_results?.combined;
-  if (combined?.test_macro_f1 != null) return `F1 ${fmtNum(combined.test_macro_f1, 4)} (combined)`;
-  if (m?.train_loglik != null) return `loglik ${fmtNum(m.train_loglik, 1)}`;
   return '—';
 }
 
-function artifactExt(modelType: string): string {
-  return modelType === 'random_forest' || modelType === 'trade_ens' ? 'joblib' : 'json';
+function artifactExt(_modelType: string): string {
+  return 'joblib';
 }
 
 function VariantTable({ results }: { results: Record<string, VariantResult> }) {
@@ -126,12 +120,11 @@ function DetailPanel({ detail }: { detail: ModelDetail }) {
 
 export default function ModelsPage() {
   const { isAdmin } = useAuth();
-  const [typeFilter, setTypeFilter] = useState('');
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [busy, setBusy] = useState<{ versionId: number; action: string } | null>(null);
   const [notice, setNotice] = useState<NoticeState | null>(null);
 
-  const key = `/models?limit=100${typeFilter ? `&model_type=${encodeURIComponent(typeFilter)}` : ''}`;
+  const key = '/models?limit=100&model_type=trade_ens';
   const { data, error, isLoading, mutate } = useApi<ModelListResponse>(key, {
     refreshInterval: 30000,
   });
@@ -168,7 +161,7 @@ export default function ModelsPage() {
     try {
       await downloadFile(
         `/models/${row.version_id}/download`,
-        `gmrai-${row.model_type}-v${row.version}.${artifactExt(row.model_type)}`
+        `gmrai-trade_ens-v${row.version}.joblib`
       );
     } catch (e) {
       setNotice({
@@ -178,51 +171,17 @@ export default function ModelsPage() {
     }
   }
 
-  async function onDownloadOnnx(row: ModelRow) {
-    setNotice(null);
-    try {
-      await downloadFile(`/models/${row.version_id}/onnx`, `gmrai-rf-v${row.version}.onnx`);
-    } catch (e) {
-      setNotice({
-        tone: 'danger',
-        text:
-          e instanceof ApiError
-            ? `${e.message} — ONNX có thể chưa được xuất cho phiên bản này`
-            : 'Tải ONNX thất bại',
-      });
-    }
-  }
-
   return (
     <div className={styles.stack}>
       <PageHeader
         title="Kho mô hình"
-        subtitle="Quản lý phiên bản HMM và Random Forest (training → validating → candidate → approved/rejected/archived)"
+        subtitle="Chỉ trade_ens — model duy nhất trong nhánh Master-V2"
       />
 
       {notice && <Notice tone={notice.tone}>{notice.text}</Notice>}
 
       <div className={styles.toolbar}>
-        <label className={styles.small} style={{ color: 'var(--text-muted)' }}>
-          Loại mô hình:{' '}
-        </label>
-        <select
-          style={{
-            background: 'var(--bg-elev)',
-            border: '1px solid var(--border)',
-            borderRadius: 8,
-            color: 'var(--text)',
-            padding: '6px 10px',
-            fontSize: 13,
-          }}
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value)}
-        >
-          <option value="">Tất cả</option>
-          <option value="hmm">hmm</option>
-          <option value="random_forest">random_forest</option>
-          <option value="trade_ens">trade_ens</option>
-        </select>
+        <Badge tone="teal">trade_ens</Badge>
         <span className={styles.muted}>
           {data ? `${data.models.length} phiên bản` : ''}
         </span>
@@ -255,9 +214,7 @@ export default function ModelsPage() {
                   <tr key={row.version_id}>
                     <td className="mono">{row.version_id}</td>
                     <td>
-                      <Badge tone={row.model_type === 'hmm' ? 'teal' : 'purple'}>
-                        {row.model_type}
-                      </Badge>
+                      <Badge tone="teal">{row.model_type}</Badge>
                     </td>
                     <td className="mono">{row.model_id}</td>
                     <td className="mono">v{row.version}</td>
@@ -279,11 +236,6 @@ export default function ModelsPage() {
                         <Button size="sm" disabled={!row.has_artifact} onClick={() => void onDownload(row)}>
                           Tải artifact
                         </Button>
-                        {row.model_type === 'random_forest' && (
-                          <Button size="sm" onClick={() => void onDownloadOnnx(row)}>
-                            ONNX
-                          </Button>
-                        )}
                         {isAdmin && row.status === 'candidate' && (
                           <Button
                             size="sm"

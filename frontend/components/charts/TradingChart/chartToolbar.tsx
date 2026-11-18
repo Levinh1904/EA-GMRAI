@@ -44,10 +44,6 @@ interface ToolbarProps {
   onVolumeToggle: () => void;
   showEma: boolean;
   onEmaToggle: () => void;
-  showAiBands: boolean;
-  onAiBandsToggle: () => void;
-  showRefBands: boolean;
-  onRefBandsToggle: () => void;
   onFullscreen: () => void;
 }
 
@@ -158,18 +154,6 @@ export function ChartToolbar(props: ToolbarProps) {
           title="Hiện/ẩn đường trung bình EMA20"
           active={props.showEma}
           onClick={props.onEmaToggle}
-        />
-        <ToolButton
-          label="AI Regime"
-          title="Hiện/ẩn vùng chế độ AI (từ run lịch sử mới nhất)"
-          active={props.showAiBands}
-          onClick={props.onAiBandsToggle}
-        />
-        <ToolButton
-          label="Reference"
-          title="Hiện/ẩn vùng chế độ Reference (động cơ quy tắc)"
-          active={props.showRefBands}
-          onClick={props.onRefBandsToggle}
         />
       </div>
 

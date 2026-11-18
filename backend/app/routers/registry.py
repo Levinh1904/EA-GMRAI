@@ -15,12 +15,12 @@ registry_router = APIRouter(prefix="/models", tags=["registry"])
 
 @registry_router.get("")
 def list_models(
-    model_type: str | None = Query(None, pattern="^(hmm|random_forest|trade_ens)$"),
+    model_type: str | None = Query(None, pattern="^(trade_ens)$"),
     limit: int = Query(100, ge=1, le=500),
     _: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    versions = list_versions(db, model_type, limit)
+    versions = list_versions(db, model_type or "trade_ens", limit)
     return {
         "models": [
             {

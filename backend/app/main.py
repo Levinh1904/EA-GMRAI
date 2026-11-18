@@ -81,9 +81,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="GMRAI — Gold Market Regime AI Intelligence",
-    version="0.1.0",
-    description="AI regime analysis platform for XAUUSD. Research only — no order execution.",
+    title="GMRAI — TRADE_ENS XAUUSD",
+    version="1.1.0",
+    description="TRADE_ENS research platform for XAUUSD M15. LONG / SHORT / NO_TRADE only.",
     lifespan=lifespan,
 )
 

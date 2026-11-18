@@ -21,7 +21,7 @@ def _make_engine(url: str, pool_class=None):
     if pool_class is not None:
         kwargs["poolclass"] = pool_class
     if url.startswith("sqlite"):
-        kwargs["connect_args"] = {"check_same_thread": False}
+        kwargs["connect_args"] = {"check_same_thread": False, "timeout": 30}
     return create_engine(url, **kwargs)
 
 

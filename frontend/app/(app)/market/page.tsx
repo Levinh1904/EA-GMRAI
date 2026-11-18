@@ -1,40 +1,19 @@
 'use client';
 
-// Live Market — professional trading view built on the lightweight-charts
-// engine. All numbers come from the real FastAPI backend; the collector only
-// stores CLOSED candles, so we show an honest "chỉ nến đã đóng" indicator,
-// and there are no trade-signal markers (the signals toggle is disabled).
+// Live market chart for the trade_ens-only build. Only closed candles are
+// loaded; there are no HMM/RF regime overlays or historical replay controls.
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { Card, EmptyState, ErrorState, Loading, Notice } from '@/components/ui/ui';
-import {
-  MarketStatsCard,
-  RecentTransitionsCard,
-} from '@/components/market/MarketSections';
-import { AiVsReferenceCard } from '@/components/market/AiVsReference';
-import { RegimeSidePanel } from '@/components/market/RegimeSidePanel';
-import { RegimeTimelineStrip } from '@/components/market/RegimeTimelineStrip';
+import { Card, EmptyState, ErrorState, Loading, Notice, PageHeader } from '@/components/ui/ui';
+import { MarketStatsCard } from '@/components/market/MarketSections';
 import { TickerBar } from '@/components/market/TickerBar';
-import {
-  barsToReferenceBands,
-  segmentsToBands,
-  tsToSec,
-  useBarsIndex,
-  useCandlesPaged,
-  useLatestDoneRun,
-  useLiveRegimes,
-  useRunBars,
-  useRunRegimeBand,
-  useRunSegments,
-} from '@/components/charts/TradingChart/useChartData';
 import { ChartToolbar } from '@/components/charts/TradingChart/chartToolbar';
-import type { RegimeBand } from '@/components/charts/TradingChart/useChartData';
 import type { TradingChartHandle } from '@/components/charts/TradingChart/TradingChartContainer';
+import { useCandlesPaged } from '@/components/charts/TradingChart/useChartData';
 import { useApi } from '@/lib/swr';
 import { fmtNum } from '@/lib/format';
-import { regimeColor } from '@/lib/regime';
-import type { DashboardStats, MultiTfStatsResponse, RegimeLatest, Timeframe } from '@/lib/types';
+import type { DashboardStats, Timeframe } from '@/lib/types';
 import styles from '@/components/market/market.module.css';
 import pstyles from '../pages.module.css';
 
@@ -48,119 +27,23 @@ const TF_BAR_SEC: Record<Timeframe, number> = { M5: 300, M15: 900, H1: 3600 };
 export default function MarketPage() {
   const [tf, setTf] = useState<Timeframe>('M15');
   const [activeRange, setActiveRange] = useState<string | null>(null);
-
-  // View toggles
   const [showVolume, setShowVolume] = useState(true);
   const [showGrid, setShowGrid] = useState(true);
   const [showCrosshair, setShowCrosshair] = useState(true);
   const [autoScale, setAutoScale] = useState(true);
   const [showEma, setShowEma] = useState(true);
-  const [showAiBands, setShowAiBands] = useState(true);
-  const [showRefBands, setShowRefBands] = useState(false);
 
   const chartRef = useRef<TradingChartHandle | null>(null);
   const fullscreenRef = useRef<HTMLDivElement | null>(null);
 
-  // ---- Data ---------------------------------------------------------------
   const candles = useCandlesPaged(tf);
-  const regime = useApi<RegimeLatest>('/regime/latest', { refreshInterval: 5000 });
   const dashboard = useApi<DashboardStats>('/stats/dashboard', { refreshInterval: 10000 });
 
-  const doneRun = useLatestDoneRun();
-  const { segments, isLoading: segLoading, error: segError } = useRunSegments(doneRun?.id ?? null);
-  const overlaysOn = showAiBands || showRefBands;
-  const { bars, isLoading: barsLoading, error: barsError } = useRunBars(
-    doneRun?.id ?? null,
-    overlaysOn
-  );
-  const barsByTime = useBarsIndex(bars);
-  // Compact label-only series: enough to paint the bands and the strip, ~15x
-  // smaller than /bars so the page stops waiting on tens of megabytes.
-  const bandSeries = useRunRegimeBand(doneRun?.id ?? null);
-  // Bars that closed AFTER the latest history run have no row in it. They are
-  // still scored live by the scheduler, so their real regime comes from
-  // /regime/history — otherwise the AI band dies at the run's snapshot and the
-  // last hours of the chart look unanalysed.
-  const liveRegimes = useLiveRegimes(400);
-  const bandBars = useMemo(() => {
-    const runBars = bandSeries.bars;
-    if (!liveRegimes.size) return runBars;
-    const runEnd = doneRun?.data_end ? new Date(doneRun.data_end).getTime() : -Infinity;
-    const out = [...runBars];
-    for (const [sec, live] of liveRegimes) {
-      if (sec * 1000 <= runEnd) continue;
-      out.push({
-        ts: new Date(sec * 1000).toISOString(),
-        regime: live.regime,
-        confidence: live.confidence,
-        reference_regime: null,
-      });
-    }
-    out.sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
-    return out;
-  }, [bandSeries.bars, liveRegimes, doneRun?.data_end]);
-  const multiTf = useApi<MultiTfStatsResponse>(
-    doneRun ? `/history/runs/${doneRun.id}/stats/multi_tf` : null,
-    { revalidateOnFocus: false, refreshInterval: 0 }
-  );
-
-  // ---- Derived -------------------------------------------------------------
   const last = candles.candles.length ? candles.candles[candles.candles.length - 1] : null;
   const prev = candles.candles.length > 1 ? candles.candles[candles.candles.length - 2] : null;
   const freshness = dashboard.data?.data_freshness?.[tf];
+  const demoSource = last?.source === 'synthetic_demo';
 
-  // Bands are derived from the merged compact series so they never stop at the
-  // run snapshot while candles keep closing.
-  const aiBands = useMemo<RegimeBand[]>(() => {
-    const out: RegimeBand[] = [];
-    let cur: RegimeBand | null = null;
-    for (const b of bandBars) {
-      if (!b.regime) {
-        if (cur) out.push(cur);
-        cur = null;
-        continue;
-      }
-      const sec = tsToSec(b.ts);
-      if (!cur || cur.regime !== b.regime) {
-        if (cur) out.push(cur);
-        cur = { start: sec, end: sec, regime: b.regime };
-      } else {
-        cur.end = sec;
-      }
-    }
-    if (cur) out.push(cur);
-    return out;
-  }, [bandBars]);
-
-  const refBands = useMemo<RegimeBand[]>(() => {
-    const out: RegimeBand[] = [];
-    let cur: RegimeBand | null = null;
-    for (const b of bandBars) {
-      const regime = b.reference_regime;
-      if (!regime) {
-        if (cur) out.push(cur);
-        cur = null;
-        continue;
-      }
-      const sec = tsToSec(b.ts);
-      if (!cur || cur.regime !== regime) {
-        if (cur) out.push(cur);
-        cur = { start: sec, end: sec, regime };
-      } else {
-        cur.end = sec;
-      }
-    }
-    if (cur) out.push(cur);
-    return out;
-  }, [bandBars]);
-
-  const lastBand = bandBars.length ? bandBars[bandBars.length - 1] : null;
-
-  const demoSource =
-    candles.candles[0]?.source === 'synthetic_demo' ||
-    regime.data?.data_source === 'synthetic_demo';
-
-  // ---- Actions -------------------------------------------------------------
   const loadMore = useCallback(() => {
     void candles.loadMore();
   }, [candles]);
@@ -193,18 +76,6 @@ export default function MarketPage() {
     [candles.candles, tf]
   );
 
-  const handleStripFocus = useCallback(
-    (ts: string) => {
-      const chart = chartRef.current;
-      if (!chart) return;
-      const t = tsToSec(ts);
-      const tfSec = TF_BAR_SEC[tf];
-      chart.focusRange(t - tfSec * 12, t + tfSec * 80);
-      setActiveRange(null);
-    },
-    [tf]
-  );
-
   const handleFullscreen = useCallback(() => {
     const el = fullscreenRef.current;
     if (!el) return;
@@ -217,6 +88,11 @@ export default function MarketPage() {
 
   return (
     <div className={pstyles.stack}>
+      <PageHeader
+        title="Thị trường"
+        subtitle="XAUUSD · nến đã đóng · chỉ hiển thị, không phải tín hiệu giao dịch"
+      />
+
       <TickerBar
         last={last}
         prev={prev}
@@ -227,8 +103,7 @@ export default function MarketPage() {
 
       {demoSource && (
         <Notice tone="warn">
-          Nguồn dữ liệu: <code>synthetic_demo</code> — dữ liệu tổng hợp mô phỏng, không phải dữ
-          liệu thị trường thực.
+          Nguồn <code>synthetic_demo</code> — dữ liệu tổng hợp, không phải thị trường thật.
         </Notice>
       )}
 
@@ -259,21 +134,17 @@ export default function MarketPage() {
             onVolumeToggle={() => setShowVolume((v) => !v)}
             showEma={showEma}
             onEmaToggle={() => setShowEma((v) => !v)}
-            showAiBands={showAiBands}
-            onAiBandsToggle={() => setShowAiBands((v) => !v)}
-            showRefBands={showRefBands}
-            onRefBandsToggle={() => setShowRefBands((v) => !v)}
             onFullscreen={handleFullscreen}
           />
 
           <div ref={fullscreenRef} className={styles.chartCard}>
             <div className={styles.chartHeader}>
-              <span className={styles.closedCandlesBadge} title="Collector chỉ lưu nến đã đóng — không có nến đang hình thành">
+              <span className={styles.closedCandlesBadge} title="Collector chỉ lưu nến đã đóng">
                 Chỉ nến đã đóng
               </span>
               <span style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>
                 {candles.candles.length > 0
-                  ? `${fmtNum(candles.candles.length, 0)} / ${fmtNum(candles.total, 0)} nến đã tải · nguồn ${last?.source ?? '—'}`
+                  ? `${fmtNum(candles.candles.length, 0)} / ${fmtNum(candles.total, 0)} nến · nguồn ${last?.source ?? '—'}`
                   : '—'}
               </span>
             </div>
@@ -285,112 +156,42 @@ export default function MarketPage() {
               <ErrorState error={candles.error} onRetry={candles.reload} />
             )}
             {!candles.loading && !candles.error && candles.candles.length === 0 && (
-              <EmptyState title="Chưa có dữ liệu nến" hint="Hãy thử khung thời gian khác" />
+              <EmptyState title="Chưa có dữ liệu nến" hint="Thử khung thời gian khác" />
             )}
             {candles.candles.length > 0 && (
-              <>
-                <TradingChartContainer
-                  ref={chartRef}
-                  candles={candles.candles}
-                  timeframe={tf}
-                  height={540}
-                  hasMore={candles.hasMore}
-                  loadingMore={candles.loadingMore}
-                  onLoadMore={loadMore}
-                  showVolume={showVolume}
-                  showGrid={showGrid}
-                  showCrosshair={showCrosshair}
-                  autoScale={autoScale}
-                  showEma={showEma}
-                  showAiBands={showAiBands}
-                  showRefBands={showRefBands}
-                  aiBands={aiBands}
-                  refBands={refBands}
-                  barsByTime={barsByTime}
-                  segments={segments}
-                />
-                {barsLoading && overlaysOn && (
-                  <Notice tone="info">
-                    Đang tải dữ liệu run lịch sử (chế độ + reference)… dải regime sẽ hiện sau khi
-                    tải xong.
-                  </Notice>
-                )}
-                {barsError && overlaysOn && (
-                  <Notice tone="warn">
-                    Không thể tải dữ liệu chế độ theo từng nến: {String(barsError)}
-                  </Notice>
-                )}
-                {segError && showAiBands && (
-                  <Notice tone="warn">Không thể tải segments chế độ AI: {String(segError)}</Notice>
-                )}
-                <div className={styles.legend}>
-                  {(showAiBands || showRefBands) && (
-                    <>
-                      {Object.entries({
-                        TREND_UP: 'Xu hướng tăng',
-                        TREND_DOWN: 'Xu hướng giảm',
-                        SIDEWAYS: 'Đi ngang',
-                        EARLY_TREND_UP: 'Tăng sớm',
-                        EARLY_TREND_DOWN: 'Giảm sớm',
-                        TRANSITION: 'Chuyển tiếp',
-                        HIGH_VOLATILITY: 'Biến động cao',
-                      }).map(([key, label]) => (
-                        <span key={key} className={styles.legendItem}>
-                          <span className={styles.legendDot} style={{ background: regimeColor(key) }} />
-                          {label}
-                        </span>
-                      ))}
-                      {showAiBands && showRefBands && (
-                        <span className={styles.legendItem} style={{ color: 'var(--text-faint)' }}>
-                          (AI phía trên · Reference phía dưới)
-                        </span>
-                      )}
-                    </>
-                  )}
-                  <span className={styles.legendItem} style={{ color: 'var(--text-faint)' }}>
-                    Bấm vào vùng nền regime để xem chi tiết đoạn
-                  </span>
-                </div>
-              </>
+              <TradingChartContainer
+                ref={chartRef}
+                candles={candles.candles}
+                timeframe={tf}
+                height={540}
+                hasMore={candles.hasMore}
+                loadingMore={candles.loadingMore}
+                onLoadMore={loadMore}
+                showVolume={showVolume}
+                showGrid={showGrid}
+                showCrosshair={showCrosshair}
+                autoScale={autoScale}
+                showEma={showEma}
+                showAiBands={false}
+                showRefBands={false}
+              />
             )}
           </div>
         </div>
-
-        <RegimeSidePanel
-          regime={regime.data ?? null}
-          regimeError={regime.error}
-          regimeLoading={regime.isLoading}
-          lastBar={bars.length ? bars[bars.length - 1] : null}
-          multiTf={multiTf.data ?? null}
-        />
       </div>
 
-      <div className={`${pstyles.grid} ${pstyles.cols2}`}>
-        <RegimeTimelineStrip
-          bars={bandBars}
-          loading={barsLoading}
-          error={barsError}
-          mode="ai"
-          onFocus={handleStripFocus}
-          count={240}
-        />
-        <AiVsReferenceCard bars={bandBars} loading={bandSeries.isLoading} error={bandSeries.error} />
-      </div>
-
-      <div className={`${pstyles.grid} ${pstyles.cols2}`}>
+      <Card title="Thống kê dữ liệu" subtitle="/stats/dashboard">
         <MarketStatsCard
           dashboard={dashboard.data ?? null}
           loading={dashboard.isLoading}
           error={dashboard.error}
         />
-        <RecentTransitionsCard segments={segments} loading={segLoading} error={segError} />
-      </div>
+      </Card>
 
-      <div className={pstyles.muted} style={{ fontSize: 12 }}>
-        Dải chế độ AI lấy từ run lịch sử mới nhất (#{doneRun?.id ?? '—'}, M15). Biểu đồ chỉ hiển thị
-        nến đã đóng — collector không gửi nến đang hình thành. Kéo sang trái để tải thêm lịch sử cũ
-        hơn (phân trang 5000 nến/trang). Múi giờ hiển thị: UTC.
-      </div>
+      <Notice tone="info">
+        Biểu đồ chỉ hiển thị nến đã đóng. Tín hiệu trade_ens nằm ở trang Trade Ens; GMRAI không
+        gửi lệnh.
+      </Notice>
     </div>
   );
 }

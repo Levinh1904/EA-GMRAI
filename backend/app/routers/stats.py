@@ -31,7 +31,10 @@ def system_status(
     candles_total = db.query(MarketCandle).count()
     active_models = (
         db.query(ModelVersion)
-        .filter(ModelVersion.status == "approved")
+        .filter(
+            ModelVersion.status == "approved",
+            ModelVersion.model_type == "trade_ens",
+        )
         .order_by(ModelVersion.id.desc())
         .limit(10)
         .all()

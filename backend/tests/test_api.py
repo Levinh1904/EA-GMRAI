@@ -90,20 +90,23 @@ def test_market_candles_pagination(client, admin_token):
     assert body["total"] == 20 and len(body["candles"]) == 7
 
 
-def test_regime_unknown_without_data(client, admin_token):
+def test_regime_returns_trade_ens_only(client, admin_token):
     r = client.get("/api/v1/regime/latest", headers={"Authorization": f"Bearer {admin_token}"})
     assert r.status_code == 200
     body = r.json()
-    assert body["regime"] == "UNKNOWN"
+    assert body["regime"] == "TRADE_ENS"
     assert body["permission"] == "NO_TRADE"
-    assert "NO_DATA" in body["reason_codes"] or "NO_APPROVED_MODEL" in body["reason_codes"]
+    assert body["trade_ens"] is None  # no model in isolated test DB
+    assert "NO_APPROVED_MODEL" in body["reason_codes"]
+    assert "TREND_UP" not in r.text and "SIDEWAYS" not in r.text
 
 
 def test_stats_dashboard(client, admin_token):
     r = client.get("/api/v1/stats/dashboard", headers={"Authorization": f"Bearer {admin_token}"})
     assert r.status_code == 200
     body = r.json()
-    assert "candles" in body and "regime" in body
+    assert "candles" in body and "trade_ens" in body
+    assert set(body.get("active_models", {}).keys()) == {"trade_ens"}
 
 
 def test_analyst_cannot_start_training(client, analyst_token):

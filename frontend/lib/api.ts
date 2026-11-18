@@ -45,6 +45,7 @@ import type {
   SidewaysStatsResponse,
   SystemLogsResponse,
   SystemStatus,
+  TelegramStatusResponse,
   Timeframe,
   TrainingRunListResponse,
   TrainingStartRequest,
@@ -305,6 +306,7 @@ export const api = {
     ),
 
   // Telegram notifications
+  telegramStatus: () => apiFetch<TelegramStatusResponse>('/telegram/status'),
   sendTelegramTest: () =>
     request<{ status: string; id: number; error: string | null }>('/telegram/test', {
       method: 'POST',

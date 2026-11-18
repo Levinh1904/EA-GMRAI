@@ -28,7 +28,7 @@ export default function AppNotFound() {
         {[
           { href: '/', label: 'Tổng quan' },
           { href: '/market', label: 'Thị trường' },
-          { href: '/history', label: 'Lịch sử Regime' },
+          { href: '/history', label: 'Lịch sử tín hiệu' },
           { href: '/settings', label: 'Cài đặt' },
         ].map((l) => (
           <Link

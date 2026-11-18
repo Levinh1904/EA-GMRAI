@@ -19,7 +19,6 @@ from app.ml.profit_trader import (
     run_policy,
     summarize_trades,
 )
-from app.ml.reference_engine import ReferenceConfig, classify_reference
 from app.ml.trade_model import MODEL_NAME, predict_ensemble
 from app.models import MarketCandle, MarketTick, ModelVersion
 from app.services.source import active_source
@@ -272,8 +271,6 @@ def compute_signal_history(db: Session, limit: int = 1000) -> dict:
     trades = run_policy(signals, outcomes, start=0, end=len(signals))
     metrics = summarize_trades(trades)
 
-    ref = classify_reference(df_m15, ReferenceConfig())
-    ref = ref.reindex(features.index)
     frame = pd.DataFrame(
         {
             "ts": features.index,
@@ -284,25 +281,18 @@ def compute_signal_history(db: Session, limit: int = 1000) -> dict:
             "p_long": probs["p_long"].values,
             "p_short": probs["p_short"].values,
             "signal": signals.values,
-            "reference_regime": ref["regime"].values,
-            "reference_reason": ref["reason"].values,
             "atr": atr(df_m15, 14).reindex(features.index).values,
         }
     )
     frame = frame.tail(max(1, min(int(limit), 5000))).copy()
     frame["ts"] = frame["ts"].map(lambda x: ensure_utc(x).isoformat())
 
-    # Performance grouped by the rule-based context at trade entry.
-    by_context = {}
+    by_direction = {}
     trade_frame = pd.DataFrame(trades)
     if len(trade_frame):
-        ref_by_ts = ref["regime"].reindex(pd.to_datetime(trade_frame["entry_ts"], utc=True))
-        trade_frame["context"] = ref_by_ts.values
-        for context, group in trade_frame.groupby("context"):
-            if not context:
-                continue
+        for direction, group in trade_frame.groupby("direction"):
             pnls = group["pnl"].to_numpy()
-            by_context[str(context)] = {
+            by_direction[str(direction)] = {
                 "n": int(len(group)),
                 "win_rate": round(float((pnls > 0).mean()), 6),
                 "mean_pnl": round(float(pnls.mean()), 6),
@@ -330,11 +320,11 @@ def compute_signal_history(db: Session, limit: int = 1000) -> dict:
         ],
         "metrics": metrics,
         "equity_curve": metrics.get("equity_curve", []),
-        "by_context": by_context,
+        "by_direction": by_direction,
         "warnings": [
             "This is in-sample replay of the approved model, not a live track record.",
             "Win rate is not profit; TP=0.5 ATR and SL=2.0 ATR.",
-            "Rule-based context is not part of the model and is not an order instruction.",
+            "trade_ens is the only model; no reference/regime context is used.",
         ],
         "cached": False,
     }

@@ -45,11 +45,11 @@ export default function LoginPage() {
           <div className={styles.logo}>GM</div>
           <div>
             <div className={styles.name}>GMRAI</div>
-            <div className={styles.sub}>Gold Market Regime AI Intelligence</div>
+            <div className={styles.sub}>TRADE_ENS · XAUUSD</div>
           </div>
         </div>
         <h1 className={styles.title}>Đăng nhập</h1>
-        <p className={styles.lead}>Hệ thống phân tích chế độ thị trường vàng XAUUSD bằng AI.</p>
+        <p className={styles.lead}>Nghiên cứu tín hiệu XAUUSD M15 bằng TRADE_ENS (LONG/SHORT/NO_TRADE).</p>
         <form onSubmit={onSubmit} className={styles.form}>
           <label className={styles.field}>
             <span className={styles.label}>Tên đăng nhập</span>

@@ -2,29 +2,29 @@ import type { Permission, Regime } from './types';
 
 /** Canonical regime color map (dark quantitative theme). */
 export const REGIME_COLORS: Record<string, string> = {
-  TREND_UP: '#22c55e',
-  TREND_DOWN: '#ef4444',
-  SIDEWAYS: '#8b98a9',
-  HIGH_VOLATILITY: '#f59e0b',
-  TRANSITION: '#a855f7',
-  EARLY_TREND_UP: '#14b8a6',
-  EARLY_TREND_DOWN: '#14b8a6',
-  EARLY_TREND: '#14b8a6',
+  TREND_UP: '#0ea5e9',
+  TREND_DOWN: '#0ea5e9',
+  SIDEWAYS: '#0ea5e9',
+  HIGH_VOLATILITY: '#0ea5e9',
+  TRANSITION: '#0ea5e9',
+  EARLY_TREND_UP: '#0ea5e9',
+  EARLY_TREND_DOWN: '#0ea5e9',
+  EARLY_TREND: '#0ea5e9',
   TRADE_ENS: '#0ea5e9',
-  UNKNOWN: '#4b5563',
+  UNKNOWN: '#64748b',
 };
 
 export const REGIME_LABELS: Record<string, string> = {
-  TREND_UP: 'Xu hướng tăng',
-  TREND_DOWN: 'Xu hướng giảm',
-  SIDEWAYS: 'Đi ngang',
-  HIGH_VOLATILITY: 'Biến động cao',
-  TRANSITION: 'Chuyển tiếp',
-  EARLY_TREND_UP: 'Tăng sớm',
-  EARLY_TREND_DOWN: 'Giảm sớm',
-  EARLY_TREND: 'Tín hiệu sớm',
-  TRADE_ENS: 'Trade Ens',
-  UNKNOWN: 'Không xác định',
+  TREND_UP: 'TRADE_ENS',
+  TREND_DOWN: 'TRADE_ENS',
+  SIDEWAYS: 'TRADE_ENS',
+  HIGH_VOLATILITY: 'TRADE_ENS',
+  TRANSITION: 'TRADE_ENS',
+  EARLY_TREND_UP: 'TRADE_ENS',
+  EARLY_TREND_DOWN: 'TRADE_ENS',
+  EARLY_TREND: 'TRADE_ENS',
+  TRADE_ENS: 'TRADE_ENS',
+  UNKNOWN: 'NO_TRADE',
 };
 
 export function regimeColor(regime: string | null | undefined): string {
@@ -166,28 +166,5 @@ export const AGREEMENT_NEUTRAL_COLOR = '#64748b'; // slate — AI và Reference 
 
 export function regimeShortLabel(regime: string | null | undefined): string {
   if (!regime) return '—';
-  switch (regime) {
-    case 'TREND_UP':
-      return 'Tăng';
-    case 'TREND_DOWN':
-      return 'Giảm';
-    case 'SIDEWAYS':
-      return 'Đi ngang';
-    case 'HIGH_VOLATILITY':
-      return 'Biến động';
-    case 'TRANSITION':
-      return 'Chuyển tiếp';
-    case 'EARLY_TREND_UP':
-      return 'Tăng sớm';
-    case 'EARLY_TREND_DOWN':
-      return 'Giảm sớm';
-    case 'EARLY_TREND':
-      return 'Tín hiệu sớm';
-    case 'TRADE_ENS':
-      return 'Trade Ens';
-    case 'UNKNOWN':
-      return 'Không xác định';
-    default:
-      return regime;
-  }
+  return regime === 'UNKNOWN' ? 'NO_TRADE' : 'TRADE_ENS';
 }

@@ -129,9 +129,7 @@ export default function SettingsPage() {
                         <tr key={i}>
                           <td className="mono">{m.id ?? '—'}</td>
                           <td>
-                            <Badge tone={m.model_type === 'hmm' ? 'teal' : 'purple'}>
-                              {m.model_type ?? '—'}
-                            </Badge>
+                            <Badge tone="teal">{m.model_type ?? '—'}</Badge>
                           </td>
                           <td className="mono">{m.model_id ?? '—'}</td>
                         </tr>

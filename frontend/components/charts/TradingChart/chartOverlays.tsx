@@ -15,8 +15,15 @@ import type {
 import type { HistoryBar, HistorySegment } from '@/lib/types';
 import { regimeColor, regimeLabel } from '@/lib/regime';
 import { fmtNum, fmtPct, fmtPrice, fmtUtc } from '@/lib/format';
-import { fmtMinHours } from '@/app/(app)/history/shared';
 import styles from './tradingchart.module.css';
+
+function fmtMinHours(minutes: number): string {
+  if (!Number.isFinite(minutes) || minutes < 0) return '—';
+  if (minutes < 60) return `${Math.round(minutes)} phút`;
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  return m ? `${h}h ${m}p` : `${h}h`;
+}
 
 // ---------- Band fill palette (low-alpha backgrounds) ----------
 

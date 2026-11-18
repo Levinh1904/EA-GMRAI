@@ -1,26 +1,28 @@
-# GMRAI — Gold Market Regime AI Intelligence
+# GMRAI — TRADE_ENS XAUUSD M15
 
-Nền tảng thu thập dữ liệu, nghiên cứu, huấn luyện, kiểm định, so sánh và
-quản lý các mô hình AI phân tích **chế độ thị trường (market regime)** của
-vàng **XAUUSD** (broker FTMO, khung chính M15 + context H1 + timing M5).
+Nền tảng thu thập dữ liệu, nghiên cứu, huấn luyện, kiểm định và quản lý model
+**TRADE_ENS** cho vàng **XAUUSD** (broker FTMO, khung chính M15 + context H1 + timing M5).
 
 > ⚠️ **GMRAI là công cụ NGHIÊN CỨU.** Hệ thống KHÔNG gửi lệnh giao dịch,
 > không kết nối tài khoản để giao dịch, không quản lý vốn/SL/TP.
 > Kết quả phân tích không phải lời khuyên đầu tư.
+
+**Hiển thị mặc định:** mọi bề mặt model/UI/Telegram/forecast chỉ dùng
+**TRADE_ENS — LONG / SHORT / NO_TRADE**. HMM/RF legacy vẫn tồn tại trong code nhưng
+không còn được dùng để hiển thị regime labels.
 
 ## Thành phần
 
 | Thành phần | Công nghệ | Mô tả |
 |---|---|---|
 | [collector/](collector/) | Python + MetaTrader5 lib (Windows) | Thu thập nến XAUUSD M5/M15/H1 từ MT5 (FTMO), gửi lên cloud qua HTTPS |
-| [backend/](backend/) | FastAPI + SQLAlchemy + PostgreSQL | Ingestion, quality checks, features, HMM + Random Forest, regime engine, backtest, model registry, ONNX export, API v1 |
-| [frontend/](frontend/) | Next.js + Plotly | Dashboard 15 trang (Overview, Live Market, AI Regime, **Trade Ens**, Lịch sử theo ngày, Training, Backtesting, Model Comparison, Registry, Data Center, Settings…) |
+| [backend/](backend/) | FastAPI + SQLAlchemy + PostgreSQL | Ingestion, quality checks, features v2, TRADE_ENS training/serving, registry, deployability, jobs |
+| [frontend/](frontend/) | Next.js + Plotly | Overview, Market, TRADE_ENS, History, Replay, Backtest, Compare, Training, Telegram/Forecast, Registry, Data, Settings |
 | [docs/](docs/) | — | Thiết kế kiến trúc, schema, AI model, pipeline, testing, deployment, security, roadmap |
 
-**trade_ens (mới):** model XAUUSD M15 độc lập dùng LightGBM + RandomForest + Logistic,
-feature schema v2 (37 cột), barrier TP 0.5×ATR / SL 2.0×ATR. Chạy song song HMM/RF cũ,
-không gửi lệnh. Xem [docs/TRADE_ENS.md](docs/TRADE_ENS.md) — kết quả OOS thật và các
-cảnh báo win-rate ≠ lợi nhuận.
+**TRADE_ENS:** LightGBM + RandomForest + Logistic, feature schema v2 (37 cột),
+barrier TP 0.5×ATR / SL 2.0×ATR. Xem [docs/TRADE_ENS.md](docs/TRADE_ENS.md) — kết quả
+OOS thật và các cảnh báo win-rate ≠ lợi nhuận.
 
 ## Bắt đầu nhanh (development, không cần MT5)
 

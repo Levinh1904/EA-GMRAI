@@ -6,11 +6,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import useSWR from 'swr';
 import { useAuth } from '@/components/AuthProvider';
 import { Icon } from '@/components/icons';
-import { Badge, RegimeBadge } from '@/components/ui/ui';
+import { Badge } from '@/components/ui/ui';
 import { useApi } from '@/lib/swr';
 import { API_BASE } from '@/lib/api';
-import { fmtAge, fmtPct, fmtUtc } from '@/lib/format';
-import type { DashboardStats, RegimeLatest } from '@/lib/types';
+import { fmtUtc } from '@/lib/format';
+import type { DashboardStats } from '@/lib/types';
 import styles from './shell.module.css';
 
 // ---------------------------------------------------------------------------
@@ -47,16 +47,14 @@ const NAV_GROUPS: NavGroup[] = [
     items: [{ href: '/market', label: 'Thị trường trực tiếp', icon: 'market' }],
   },
   {
-    key: 'ai',
-    label: 'Phân tích AI',
+    key: 'analysis',
+    label: 'TRADE_ENS',
     statusKey: 'health',
     items: [
-      { href: '/regime', label: 'AI Regime', icon: 'regime' },
+      { href: '/regime', label: 'TRADE_ENS hiện tại', icon: 'regime' },
+      { href: '/history', label: 'Lịch sử tín hiệu', icon: 'history' },
       { href: '/history/day', label: 'Lịch sử theo ngày', icon: 'history' },
-      { href: '/history', label: 'Lịch sử Regime', icon: 'history' },
-      { href: '/history', query: 'tab=reference', label: 'So sánh Reference', icon: 'compare' },
-      { href: '/replay', label: 'Replay lịch sử', icon: 'replay' },
-      { href: '/telegram', label: 'Telegram & Dự đoán', icon: 'data' },
+      { href: '/replay', label: 'Replay tín hiệu', icon: 'replay' },
     ],
   },
   {
@@ -64,11 +62,12 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'Mô hình',
     statusKey: 'models',
     items: [
-      { href: '/training', label: 'Training', icon: 'training' },
       { href: '/signals', label: 'Trade Ens', icon: 'regime' },
-      { href: '/backtesting', label: 'Backtesting', icon: 'backtest' },
       { href: '/models', label: 'Kho mô hình', icon: 'models' },
-      { href: '/compare', label: 'So sánh mô hình', icon: 'compare' },
+      { href: '/backtesting', label: 'Backtest', icon: 'backtest' },
+      { href: '/compare', label: 'So sánh version', icon: 'compare' },
+      { href: '/training', label: 'Training', icon: 'training' },
+      { href: '/telegram', label: 'Telegram & Forecast', icon: 'data' },
     ],
   },
   {
@@ -149,10 +148,7 @@ function freshnessStatus(dash: DashboardStats | null, error: unknown, loading: b
 function modelsStatus(dash: DashboardStats | null, error: unknown, loading: boolean): GroupStatus {
   if (loading) return 'loading';
   if (error || !dash) return 'offline';
-  const count =
-    (dash.active_models?.hmm?.length ?? 0) +
-    (dash.active_models?.random_forest?.length ?? 0) +
-    (dash.active_models?.trade_ens?.length ?? 0);
+  const count = dash.active_models?.trade_ens?.length ?? 0;
   return count > 0 ? 'ok' : 'warn';
 }
 
@@ -175,7 +171,7 @@ function statusTitleFor(key: NavGroup['statusKey'], status: GroupStatus, dash: D
     return stale.length ? `Dữ liệu cũ: ${stale.join(', ')}` : base;
   }
   if (key === 'models') {
-    return `Mô hình hoạt động: ${(dash.active_models?.hmm?.length ?? 0) + (dash.active_models?.random_forest?.length ?? 0) + (dash.active_models?.trade_ens?.length ?? 0)}`;
+    return `Mô hình hoạt động: ${dash.active_models?.trade_ens?.length ?? 0}`;
   }
   return base;
 }
@@ -227,7 +223,7 @@ function Sidebar({
         {!collapsed && (
           <div className={styles.brandText}>
             <div className={styles.brandName}>GMRAI</div>
-            <div className={styles.brandSub}>Gold Market Regime AI</div>
+            <div className={styles.brandSub}>Trade Ens · XAUUSD</div>
           </div>
         )}
       </div>
@@ -288,7 +284,7 @@ function Sidebar({
               <span className={styles.apiDot} />
               API: <span className={styles.mono}>{API_BASE}</span>
             </div>
-            <div className={styles.sidebarFootRow}>XAUUSD · M15 · v1</div>
+            <div className={styles.sidebarFootRow}>XAUUSD · M15 · trade_ens</div>
           </>
         )}
       </div>
@@ -310,7 +306,7 @@ function TopBar({
   onOpenDrawer: () => void;
 }) {
   const { user, logout } = useAuth();
-  const { data, error, isLoading } = useApi<RegimeLatest>('/regime/latest', {
+  const { data, error, isLoading } = useApi<DashboardStats>('/stats/dashboard', {
     refreshInterval: 30000,
     revalidateOnFocus: true,
   });
@@ -332,7 +328,7 @@ function TopBar({
         <span className={styles.topbarPath}>{pathname}</span>
       </div>
       <div className={styles.topbarRight}>
-        {isLoading && <span className={styles.apiStatusMuted}>Đang cập nhật chế độ…</span>}
+        {isLoading && <span className={styles.apiStatusMuted}>Đang cập nhật dữ liệu…</span>}
         {error && !isLoading && (
           <Badge tone="danger" title={error instanceof Error ? error.message : 'Lỗi API'}>
             API lỗi
@@ -340,15 +336,22 @@ function TopBar({
         )}
         {data && !isLoading && (
           <>
-            <RegimeBadge regime={data.regime} />
-            <span className={styles.topbarConf} title="Độ tin cậy của mô hình">
-              {fmtPct(data.confidence)}
-            </span>
-            <span className={styles.topbarTime} title={`Cập nhật ${fmtUtc(data.timestamp)}`}>
-              {fmtUtc(data.timestamp)} · {fmtAge(data.data_age_minutes)}
+            <Badge
+              tone={
+                data.trade_ens?.signal === 'LONG'
+                  ? 'success'
+                  : data.trade_ens?.signal === 'SHORT'
+                    ? 'danger'
+                    : 'neutral'
+              }
+            >
+              Trade Ens: {data.trade_ens?.signal ?? 'NO_TRADE'}
+            </Badge>
+            <span className={styles.topbarTime} title={`Cập nhật ${fmtUtc(data.generated_at)}`}>
+              {fmtUtc(data.generated_at)}
             </span>
             <Badge tone={data.data_source === 'synthetic_demo' ? 'yellow' : 'teal'}>
-              {data.data_source === 'synthetic_demo' ? 'DEMO' : data.data_source}
+              {data.data_source === 'synthetic_demo' ? 'DEMO' : (data.data_source ?? 'no source')}
             </Badge>
           </>
         )}
@@ -370,7 +373,7 @@ function TopBar({
 // ---------------------------------------------------------------------------
 
 function DemoBanner() {
-  const { data } = useApi<RegimeLatest>('/regime/latest', {
+  const { data } = useApi<DashboardStats>('/stats/dashboard', {
     refreshInterval: 30000,
   });
   if (!data || data.data_source !== 'synthetic_demo') return null;
@@ -386,7 +389,7 @@ function DemoBanner() {
 }
 
 function Footer() {
-  const { data } = useApi<RegimeLatest>('/regime/latest', { refreshInterval: 15000 });
+  const { data } = useApi<DashboardStats>('/stats/dashboard', { refreshInterval: 15000 });
   const source = data?.data_source ?? '—';
   return (
     <footer className={styles.footer}>

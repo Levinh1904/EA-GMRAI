@@ -167,20 +167,23 @@ export interface ActiveModelRef {
   model_type?: string;
   model_id?: number;
   version?: number;
+  version_id?: number;
   status?: string;
+  created_at?: string;
+  metrics?: Record<string, unknown> | null;
 }
 
 export interface DashboardStats {
   symbol: string;
   generated_at: string;
-  regime: RegimeLatest;
+  trade_ens: TradeSignal | null;
+  trade_ens_error: string | null;
   candles: Partial<Record<Timeframe, CandleStats>>;
+  data_source: string | null;
   data_freshness: Partial<Record<Timeframe, FreshnessInfo>>;
   last_sync: SyncLog[];
   last_quality_reports: QualityReport[];
   active_models: {
-    hmm: ActiveModelRef[];
-    random_forest: ActiveModelRef[];
     trade_ens: ActiveModelRef[];
   };
 }
@@ -852,6 +855,15 @@ export interface TelegramStatusResponse {
   chat_id: string | null;
   counts: { total: number; sent: number; skipped: number; failed: number };
   throttle?: TelegramThrottle;
+  latest_signal?: {
+    signal: 'LONG' | 'SHORT' | 'NO_TRADE';
+    bar_ts: string | null;
+    p_long: number | null;
+    p_short: number | null;
+    threshold: number | null;
+    stale: boolean;
+  } | null;
+  note?: string;
   last: {
     id: number;
     status: TelegramStatus;
@@ -1108,8 +1120,6 @@ export interface TradeHistoryBar {
   p_long: number;
   p_short: number;
   signal: 'LONG' | 'SHORT' | 'NO_TRADE';
-  reference_regime: string | null;
-  reference_reason: string | null;
   atr: number | null;
 }
 
@@ -1138,7 +1148,7 @@ export interface TradeHistory {
   trades: TradeHistoryTrade[];
   metrics: TradeMetrics;
   equity_curve: number[];
-  by_context: Record<string, { n: number; win_rate: number; mean_pnl: number; total_pnl: number }>;
+  by_direction: Record<string, { n: number; win_rate: number; mean_pnl: number; total_pnl: number }>;
   warnings: string[];
   cached: boolean;
 }

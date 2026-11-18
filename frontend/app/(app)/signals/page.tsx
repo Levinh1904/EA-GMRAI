@@ -126,7 +126,7 @@ export default function TradeEnsPage() {
     <div className={styles.stack}>
       <PageHeader
         title="Trade Ens · XAUUSD M15"
-        subtitle="LightGBM + RandomForest + Logistic, ensemble xác suất LONG/SHORT. Không phải HMM/RF regime cũ."
+        subtitle="LightGBM + RandomForest + Logistic, ensemble xác suất LONG/SHORT. Model duy nhất: TRADE_ENS."
         right={
           isAdmin ? (
             <Button variant="primary" onClick={startTraining} disabled={training}>
@@ -256,7 +256,6 @@ export default function TradeEnsPage() {
                       <th className="num">p(LONG)</th>
                       <th className="num">p(SHORT)</th>
                       <th>Tín hiệu</th>
-                      <th>Context ref_v1</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -271,7 +270,6 @@ export default function TradeEnsPage() {
                             {b.signal}
                           </Badge>
                         </td>
-                        <td>{b.reference_regime ?? '—'}</td>
                       </tr>
                     ))}
                   </tbody>
