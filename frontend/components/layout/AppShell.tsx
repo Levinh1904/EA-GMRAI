@@ -53,6 +53,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: '/regime', label: 'TRADE_ENS hiện tại', icon: 'regime' },
       { href: '/history', label: 'Lịch sử tín hiệu', icon: 'history' },
+      { href: '/history/stats', label: 'Thống kê tín hiệu', icon: 'compare' },
       { href: '/history/day', label: 'Lịch sử theo ngày', icon: 'history' },
       { href: '/replay', label: 'Replay tín hiệu', icon: 'replay' },
     ],

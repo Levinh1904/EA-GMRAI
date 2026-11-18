@@ -36,6 +36,9 @@ export const REGIME_BAND_FILL: Record<string, string> = {
   EARLY_TREND: 'rgba(20, 184, 166, 0.13)',
   TRANSITION: 'rgba(168, 85, 247, 0.12)',
   HIGH_VOLATILITY: 'rgba(245, 158, 11, 0.16)',
+  LONG: 'rgba(34, 197, 94, 0.18)',
+  SHORT: 'rgba(239, 68, 68, 0.18)',
+  NO_TRADE: 'rgba(100, 116, 139, 0.05)',
   UNKNOWN: 'rgba(75, 85, 99, 0)',
   // Live tail: candles newer than the analysed run — shown but not yet
   // classified by the model (honest "not analysed" marker).
@@ -56,6 +59,9 @@ export const REGIME_STRIP_FILL: Record<string, string> = {
   EARLY_TREND: '#14b8a6',
   TRANSITION: '#a855f7',
   HIGH_VOLATILITY: '#f59e0b',
+  LONG: '#22c55e',
+  SHORT: '#ef4444',
+  NO_TRADE: '#64748b',
   UNKNOWN: '#3f4756',
   LIVE: '#4c8dff',
   AGREE: '#64748b',

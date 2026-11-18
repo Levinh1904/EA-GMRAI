@@ -144,6 +144,7 @@ export default function HistoryPage() {
       </Card>
 
       <div className={styles.chips}>
+        <Link href="/history/stats">Thống kê chi tiết</Link>
         <Link href="/history/day">Xem theo ngày</Link>
         <Link href="/replay">Replay tín hiệu</Link>
         <Link href="/signals">Model & deployability</Link>

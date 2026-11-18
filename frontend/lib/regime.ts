@@ -11,6 +11,9 @@ export const REGIME_COLORS: Record<string, string> = {
   EARLY_TREND_DOWN: '#0ea5e9',
   EARLY_TREND: '#0ea5e9',
   TRADE_ENS: '#0ea5e9',
+  LONG: '#22c55e',
+  SHORT: '#ef4444',
+  NO_TRADE: '#64748b',
   UNKNOWN: '#64748b',
 };
 
@@ -24,6 +27,9 @@ export const REGIME_LABELS: Record<string, string> = {
   EARLY_TREND_DOWN: 'TRADE_ENS',
   EARLY_TREND: 'TRADE_ENS',
   TRADE_ENS: 'TRADE_ENS',
+  LONG: 'LONG',
+  SHORT: 'SHORT',
+  NO_TRADE: 'NO_TRADE',
   UNKNOWN: 'NO_TRADE',
 };
 
@@ -166,5 +172,6 @@ export const AGREEMENT_NEUTRAL_COLOR = '#64748b'; // slate — AI và Reference 
 
 export function regimeShortLabel(regime: string | null | undefined): string {
   if (!regime) return '—';
+  if (regime === 'LONG' || regime === 'SHORT' || regime === 'NO_TRADE') return regime;
   return regime === 'UNKNOWN' ? 'NO_TRADE' : 'TRADE_ENS';
 }

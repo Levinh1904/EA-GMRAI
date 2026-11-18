@@ -141,6 +141,7 @@ export default function TradeEnsPage() {
 
       <div className={styles.chips}>
         <Link href="/history">Lịch sử tín hiệu</Link>
+        <Link href="/history/stats">Thống kê tín hiệu</Link>
         <Link href="/history/day">Lịch sử theo ngày</Link>
         <Link href="/replay">Replay tín hiệu</Link>
         <Link href="/backtesting">Backtest OOS</Link>

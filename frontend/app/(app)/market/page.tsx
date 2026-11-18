@@ -3,17 +3,18 @@
 // Live market chart for the trade_ens-only build. Only closed candles are
 // loaded; there are no HMM/RF regime overlays or historical replay controls.
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { Card, EmptyState, ErrorState, Loading, Notice, PageHeader } from '@/components/ui/ui';
+import { Badge, Card, EmptyState, ErrorState, Loading, Notice, PageHeader } from '@/components/ui/ui';
 import { MarketStatsCard } from '@/components/market/MarketSections';
 import { TickerBar } from '@/components/market/TickerBar';
 import { ChartToolbar } from '@/components/charts/TradingChart/chartToolbar';
 import type { TradingChartHandle } from '@/components/charts/TradingChart/TradingChartContainer';
-import { useCandlesPaged } from '@/components/charts/TradingChart/useChartData';
+import type { Band } from '@/components/charts/TradingChart/chartOverlays';
+import { tsToSec, useCandlesPaged } from '@/components/charts/TradingChart/useChartData';
 import { useApi } from '@/lib/swr';
-import { fmtNum } from '@/lib/format';
-import type { DashboardStats, Timeframe } from '@/lib/types';
+import { fmtNum, fmtPrice, fmtUtcSec } from '@/lib/format';
+import type { DashboardStats, MarketLatest, Timeframe, TradeHistory } from '@/lib/types';
 import styles from '@/components/market/market.module.css';
 import pstyles from '../pages.module.css';
 
@@ -38,11 +39,49 @@ export default function MarketPage() {
 
   const candles = useCandlesPaged(tf);
   const dashboard = useApi<DashboardStats>('/stats/dashboard', { refreshInterval: 10000 });
+  const latest = useApi<MarketLatest>('/market/latest', { refreshInterval: 5000 });
+  const tradeHistory = useApi<TradeHistory>('/trade-model/history?limit=5000', {
+    refreshInterval: 60000,
+  });
 
   const last = candles.candles.length ? candles.candles[candles.candles.length - 1] : null;
   const prev = candles.candles.length > 1 ? candles.candles[candles.candles.length - 2] : null;
+  const latestCandle = latest.data?.latest?.[tf] ?? last;
   const freshness = dashboard.data?.data_freshness?.[tf];
-  const demoSource = last?.source === 'synthetic_demo';
+  const demoSource = latestCandle?.source === 'synthetic_demo';
+
+  // If the cheap /latest probe is newer than the paginated chart tail, refresh
+  // the chart so the newest CLOSED candle is not missed.
+  useEffect(() => {
+    if (!latestCandle?.ts || !last?.ts) return;
+    if (new Date(latestCandle.ts).getTime() > new Date(last.ts).getTime()) {
+      candles.reload();
+    }
+  }, [latestCandle?.ts, last?.ts, candles.reload]);
+
+  const signalBands = useMemo<Band[]>(() => {
+    if (tf !== 'M15' || !tradeHistory.data) return [];
+    const bars = tradeHistory.data.bars;
+    const out: Band[] = [];
+    let cur: Band | null = null;
+    for (const b of bars) {
+      if (b.signal !== 'LONG' && b.signal !== 'SHORT') {
+        if (cur) out.push(cur);
+        cur = null;
+        continue;
+      }
+      const start = tsToSec(b.ts);
+      const end = start + 900;
+      if (!cur || cur.regime !== b.signal) {
+        if (cur) out.push(cur);
+        cur = { start, end, regime: b.signal };
+      } else {
+        cur.end = end;
+      }
+    }
+    if (cur) out.push(cur);
+    return out;
+  }, [tf, tradeHistory.data]);
 
   const loadMore = useCallback(() => {
     void candles.loadMore();
@@ -94,7 +133,7 @@ export default function MarketPage() {
       />
 
       <TickerBar
-        last={last}
+        last={latestCandle}
         prev={prev}
         timeframe={tf}
         freshness={freshness}
@@ -143,8 +182,8 @@ export default function MarketPage() {
                 Chỉ nến đã đóng
               </span>
               <span style={{ fontSize: 11.5, color: 'var(--text-tertiary)' }}>
-                {candles.candles.length > 0
-                  ? `${fmtNum(candles.candles.length, 0)} / ${fmtNum(candles.total, 0)} nến · nguồn ${last?.source ?? '—'}`
+                {latestCandle
+                  ? `Nến đóng gần nhất: ${fmtUtcSec(latestCandle.ts)} · ${fmtPrice(latestCandle.close)} USD`
                   : '—'}
               </span>
             </div>
@@ -172,12 +211,21 @@ export default function MarketPage() {
                 showCrosshair={showCrosshair}
                 autoScale={autoScale}
                 showEma={showEma}
-                showAiBands={false}
+                showAiBands={tf === 'M15' && signalBands.length > 0}
+                aiBands={signalBands}
                 showRefBands={false}
               />
             )}
           </div>
         </div>
+      </div>
+
+      <div className={styles.legend}>
+        <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#22c55e' }} /> LONG</span>
+        <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#ef4444' }} /> SHORT</span>
+        <span className={styles.legendItem} style={{ color: 'var(--text-faint)' }}>
+          Dải tín hiệu từ lịch sử in-sample TRADE_ENS · chỉ M15
+        </span>
       </div>
 
       <Card title="Thống kê dữ liệu" subtitle="/stats/dashboard">
