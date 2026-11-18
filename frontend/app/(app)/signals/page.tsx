@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import {
@@ -137,6 +138,13 @@ export default function TradeEnsPage() {
       />
 
       {trainMsg && <Notice tone="info">{trainMsg}</Notice>}
+
+      <div className={styles.chips}>
+        <Link href="/history">Lịch sử tín hiệu</Link>
+        <Link href="/history/day">Lịch sử theo ngày</Link>
+        <Link href="/replay">Replay tín hiệu</Link>
+        <Link href="/backtesting">Backtest OOS</Link>
+      </div>
 
       {!s?.approved ? (
         <Notice tone="warn">

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import {
@@ -185,6 +186,10 @@ export default function ModelsPage() {
         <span className={styles.muted}>
           {data ? `${data.models.length} phiên bản` : ''}
         </span>
+        <span className={styles.toolbarSpacer} />
+        <Link href="/history">Lịch sử tín hiệu</Link>
+        <Link href="/replay">Replay</Link>
+        <Link href="/backtesting">Backtest</Link>
       </div>
 
       <Card title="Danh sách phiên bản mô hình">
