@@ -226,6 +226,9 @@ def run_policy(
             {
                 "direction": sig,
                 "pnl": pnl,
+                "entry_price": float(row["entry_price"])
+                if row.get("entry_price") is not None and pd.notna(row.get("entry_price"))
+                else None,
                 "entry_idx": i + 1,
                 "exit_idx": exit_pos,
                 "entry_ts": signals.index[i + 1],
@@ -263,6 +266,7 @@ def summarize_trades(trades: list[dict]) -> dict:
             "mean_pnl": 0.0, "total_pnl": 0.0, "profit_factor": None,
             "max_drawdown": 0.0, "t_stat": None, "avg_win": None, "avg_loss": None,
             "breakeven_win_rate": None, "equity_curve": [],
+            "avg_entry_price": None, "mean_return_pct": None, "total_return_pct": None,
         }
     pnls = np.asarray([t["pnl"] for t in trades], dtype=float)
     wins = int((pnls > 0).sum())
@@ -276,6 +280,16 @@ def summarize_trades(trades: list[dict]) -> dict:
     gross_win = float(gains.sum())
     gross_loss = float(-losses.sum())
     std = float(pnls.std(ddof=1)) if n > 1 else 0.0
+    entry_prices = [
+        float(t["entry_price"])
+        for t in trades
+        if t.get("entry_price") is not None and np.isfinite(float(t["entry_price"]))
+    ]
+    returns_pct = [
+        float(t["pnl"]) / float(t["entry_price"]) * 100.0
+        for t in trades
+        if t.get("entry_price") not in (None, 0)
+    ]
     return {
         "n": n,
         "wins": wins,
@@ -292,6 +306,9 @@ def summarize_trades(trades: list[dict]) -> dict:
         "breakeven_win_rate": round(avg_loss / (avg_win + avg_loss), 6)
         if (avg_win + avg_loss) > 0 else None,
         "equity_curve": [round(float(x), 6) for x in np.cumsum(pnls).tolist()],
+        "avg_entry_price": round(float(np.mean(entry_prices)), 6) if entry_prices else None,
+        "mean_return_pct": round(float(np.mean(returns_pct)), 6) if returns_pct else None,
+        "total_return_pct": round(float(np.sum(returns_pct)), 6) if returns_pct else None,
     }
 
 

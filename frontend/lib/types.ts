@@ -1045,6 +1045,9 @@ export interface TradeMetrics {
   avg_loss: number | null;
   breakeven_win_rate: number | null;
   equity_curve: number[];
+  avg_entry_price?: number | null;
+  mean_return_pct?: number | null;
+  total_return_pct?: number | null;
 }
 
 export interface TradeModelStatus {
@@ -1126,6 +1129,7 @@ export interface TradeHistoryBar {
 export interface TradeHistoryTrade {
   direction: 'LONG' | 'SHORT';
   pnl: number;
+  entry_price?: number | null;
   entry_idx: number;
   exit_idx: number;
   entry_ts: string;

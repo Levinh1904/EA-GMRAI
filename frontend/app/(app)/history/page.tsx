@@ -28,6 +28,16 @@ function Metrics({ m }: { m: TradeMetrics }) {
       <Stat label="Max DD" value={fmtNum(m.max_drawdown, 2)} />
       <Stat label="Avg win" value={fmtNum(m.avg_win, 3)} />
       <Stat label="Avg loss" value={fmtNum(m.avg_loss, 3)} />
+      <Stat
+        label="Return/lệnh"
+        value={m.mean_return_pct != null ? `${fmtNum(m.mean_return_pct, 3)}%` : '—'}
+        sub="trên giá entry, 1 oz notional"
+      />
+      <Stat
+        label="Tổng return notional"
+        value={m.total_return_pct != null ? `${fmtNum(m.total_return_pct, 2)}%` : '—'}
+        sub="không compounding"
+      />
     </div>
   );
 }
@@ -56,6 +66,10 @@ export default function HistoryPage() {
 
       <Card title="Hiệu quả replay" subtitle={`${data.metrics.n} lệnh · threshold SHORT ${fmtNum(data.thresholds?.SHORT ?? data.threshold, 4)}`}>
         <Metrics m={data.metrics} />
+        <p className="muted" style={{ marginTop: 10 }}>
+          Win rate = % lệnh có lãi. Return/lệnh và tổng return là % trên giá entry của 1 oz
+          notional, không phải % tài khoản.
+        </p>
       </Card>
 
       <Card title="Theo hướng" subtitle="chỉ LONG / SHORT">

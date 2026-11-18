@@ -49,6 +49,13 @@ export default function MarketPage() {
   const latestCandle = latest.data?.latest?.[tf] ?? last;
   const freshness = dashboard.data?.data_freshness?.[tf];
   const demoSource = latestCandle?.source === 'synthetic_demo';
+  const allowedSides = tradeHistory.data?.allowed_sides ?? [];
+  const formingOpen = latestCandle
+    ? new Date(new Date(latestCandle.ts).getTime() + TF_BAR_SEC[tf] * 1000).toISOString()
+    : null;
+  const formingClose = formingOpen
+    ? new Date(new Date(formingOpen).getTime() + TF_BAR_SEC[tf] * 1000).toISOString()
+    : null;
 
   // If the cheap /latest probe is newer than the paginated chart tail, refresh
   // the chart so the newest CLOSED candle is not missed.
@@ -82,6 +89,15 @@ export default function MarketPage() {
     if (cur) out.push(cur);
     return out;
   }, [tf, tradeHistory.data]);
+
+  const signalCounts = useMemo(() => {
+    const counts = { LONG: 0, SHORT: 0, NO_TRADE: 0 };
+    for (const b of tradeHistory.data?.bars ?? []) {
+      if (b.signal === 'LONG' || b.signal === 'SHORT') counts[b.signal] += 1;
+      else counts.NO_TRADE += 1;
+    }
+    return counts;
+  }, [tradeHistory.data]);
 
   const loadMore = useCallback(() => {
     void candles.loadMore();
@@ -221,12 +237,33 @@ export default function MarketPage() {
       </div>
 
       <div className={styles.legend}>
-        <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#22c55e' }} /> LONG</span>
-        <span className={styles.legendItem}><span className={styles.legendDot} style={{ background: '#ef4444' }} /> SHORT</span>
+        <span className={styles.legendItem}>
+          <span className={styles.legendDot} style={{ background: '#22c55e' }} /> LONG{' '}
+          <strong>{signalCounts.LONG}</strong>
+        </span>
+        <span className={styles.legendItem}>
+          <span className={styles.legendDot} style={{ background: '#ef4444' }} /> SHORT{' '}
+          <strong>{signalCounts.SHORT}</strong>
+        </span>
         <span className={styles.legendItem} style={{ color: 'var(--text-faint)' }}>
-          Dải tín hiệu từ lịch sử in-sample TRADE_ENS · chỉ M15
+          NO_TRADE {signalCounts.NO_TRADE} · dải tín hiệu từ lịch sử in-sample TRADE_ENS · chỉ M15
         </span>
       </div>
+
+      {formingOpen && formingClose && (
+        <Notice tone="info">
+          Nến {tf} đóng gần nhất: <strong>{fmtUtcSec(latestCandle?.ts)}</strong>. Nến kế tiếp
+          đang hình thành mở {fmtUtcSec(formingOpen)}, đóng lúc {fmtUtcSec(formingClose)} —
+          collector chỉ lưu nến đã đóng.
+        </Notice>
+      )}
+
+      {tradeHistory.data && !allowedSides.includes('LONG') && (
+        <Notice tone="warn">
+          Model hiện tại chỉ cho phép <strong>SHORT</strong>; LONG đã bị loại từ validation nên
+          không có dải xanh. Dải xanh chỉ xuất hiện khi model được duyệt có LONG.
+        </Notice>
+      )}
 
       <Card title="Thống kê dữ liệu" subtitle="/stats/dashboard">
         <MarketStatsCard

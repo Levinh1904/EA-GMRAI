@@ -271,3 +271,11 @@
     display: none;
   }
 }
+
+.pos {
+  color: var(--status-ok, #22c55e);
+}
+
+.neg {
+  color: var(--status-danger, #ef4444);
+}

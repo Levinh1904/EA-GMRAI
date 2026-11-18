@@ -54,7 +54,7 @@ function Table({ rows, firstLabel }: { rows: Row[]; firstLabel: string }) {
               <td className="num">{fmtNum(b.n, 0)}</td>
               <td className="num">{fmtPct(b.n ? b.wins / b.n : null)}</td>
               <td className="num">{fmtNum(b.n ? b.pnl / b.n : null, 3)}</td>
-              <td className="num">{fmtNum(b.pnl, 2)}</td>
+              <td className={`num ${b.pnl > 0 ? styles.pos : b.pnl < 0 ? styles.neg : ''}`}>{fmtNum(b.pnl, 2)}</td>
             </tr>
           ))}
         </tbody>
@@ -99,6 +99,16 @@ function Metrics({ m }: { m: TradeMetrics }) {
       <Stat label="Max drawdown" value={fmtNum(m.max_drawdown, 2)} />
       <Stat label="Avg win" value={fmtNum(m.avg_win, 3)} />
       <Stat label="Breakeven" value={fmtPct(m.breakeven_win_rate)} />
+      <Stat
+        label="Return/lệnh"
+        value={m.mean_return_pct != null ? `${fmtNum(m.mean_return_pct, 3)}%` : '—'}
+        sub="trên giá entry, 1 oz notional"
+      />
+      <Stat
+        label="Tổng return notional"
+        value={m.total_return_pct != null ? `${fmtNum(m.total_return_pct, 2)}%` : '—'}
+        sub="cộng % từng lệnh, không compounding"
+      />
     </div>
   );
 }
@@ -140,6 +150,10 @@ export default function HistoryStatsPage() {
 
       <Card title="Tổng quan" subtitle={`${data.metrics.n} lệnh · threshold SHORT ${fmtNum(data.thresholds?.SHORT ?? data.threshold, 4)}`}>
         <Metrics m={data.metrics} />
+        <p className="muted" style={{ marginTop: 10 }}>
+          Win rate = % lệnh có PnL &gt; 0. Return/lệnh và tổng return là % trên giá entry
+          của 1 oz notional, không phải % tài khoản, không tính compounding/leverage.
+        </p>
       </Card>
 
       <Card title="Equity curve" subtitle="tổng PnL lũy kế theo lệnh (USD/oz)">
