@@ -103,6 +103,64 @@ export function HBars({
   );
 }
 
+// ---------- Grouped bar chart (correct vs wrong per category) ----------
+
+export interface HGroupedSeries {
+  name: string;
+  values: number[];
+  color: string;
+}
+
+export function HGroupedBars({
+  labels,
+  series,
+  height = 300,
+  fmt = (v: number) => String(v),
+  stacked = false,
+}: {
+  labels: string[];
+  series: HGroupedSeries[];
+  height?: number;
+  fmt?: (v: number) => string;
+  /** stacked = one bar per category split into parts; false = side by side. */
+  stacked?: boolean;
+}) {
+  if (!labels.length || !series.length) return null;
+
+  const traces: Data[] = series.map((s) => ({
+    type: 'bar',
+    name: s.name,
+    x: labels,
+    y: s.values,
+    marker: { color: s.color },
+    text: s.values.map(fmt),
+    textposition: 'auto',
+    hovertemplate: `${s.name}: %{y:.1f}%<extra></extra>`,
+  }));
+
+  const layout: Layout = {
+    paper_bgcolor: 'rgba(0,0,0,0)',
+    plot_bgcolor: BG,
+    font: { color: FONT, size: 11 },
+    margin: { l: 8, r: 8, t: 30, b: 40 },
+    showlegend: true,
+    legend: { orientation: 'h', y: 1.12, font: { size: 11 } },
+    barmode: stacked ? 'stack' : 'group',
+    bargap: 0.35,
+    bargroupgap: 0.08,
+    xaxis: { gridcolor: GRID, tickfont: { size: 11 }, automargin: true },
+    yaxis: {
+      gridcolor: GRID,
+      automargin: true,
+      range: stacked ? undefined : [0, 100],
+    },
+  };
+
+  return (
+    <Plot data={traces} layout={layout} config={BASE_CONFIG} style={{ width: '100%', height }} useResizeHandler />
+  );
+}
+
 // ---------- Pie chart ----------
 
 export interface HPieDatum {

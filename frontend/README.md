@@ -36,7 +36,7 @@ Frontend gọi tất cả endpoint qua `<NEXT_PUBLIC_API_URL>/api/v1/...`.
 
 ## Đăng nhập
 
-- Trang `/login`. Tài khoản dev: `admin` / `admin-change-me`.
+- Trang `/login`. Mật khẩu admin lấy từ `backend/.env` (sinh bằng `python -m scripts.rotate_secrets`).
 - Token lưu ở `localStorage` (key `gmrai_access_token`), gắn header `Authorization: Bearer <token>`.
 - Mọi response 401 sẽ tự xóa token và redirect về `/login`.
 - Vai trò `admin` mở khóa các hành động: khởi động training, khởi động backtest,

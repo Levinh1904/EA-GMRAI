@@ -29,6 +29,13 @@ interface NoticeState {
 
 function keyMetric(row: ModelRow): string {
   const m = row.metrics;
+  if (row.model_type === 'trade_ens') {
+    const walk = m?.walk_forward as { oos_metrics?: { mean_pnl?: number; win_rate?: number } } | undefined;
+    const oos = walk?.oos_metrics;
+    if (oos?.mean_pnl != null) {
+      return `OOS mean ${fmtNum(oos.mean_pnl, 3)} · win ${fmtNum((oos.win_rate ?? 0) * 100, 1)}%`;
+    }
+  }
   if (m?.test_macro_f1 != null) return `F1 ${fmtNum(m.test_macro_f1, 4)}`;
   const combined = m?.variant_results?.combined;
   if (combined?.test_macro_f1 != null) return `F1 ${fmtNum(combined.test_macro_f1, 4)} (combined)`;
@@ -37,7 +44,7 @@ function keyMetric(row: ModelRow): string {
 }
 
 function artifactExt(modelType: string): string {
-  return modelType === 'random_forest' ? 'joblib' : 'json';
+  return modelType === 'random_forest' || modelType === 'trade_ens' ? 'joblib' : 'json';
 }
 
 function VariantTable({ results }: { results: Record<string, VariantResult> }) {
@@ -214,6 +221,7 @@ export default function ModelsPage() {
           <option value="">Tất cả</option>
           <option value="hmm">hmm</option>
           <option value="random_forest">random_forest</option>
+          <option value="trade_ens">trade_ens</option>
         </select>
         <span className={styles.muted}>
           {data ? `${data.models.length} phiên bản` : ''}
@@ -276,8 +284,7 @@ export default function ModelsPage() {
                             ONNX
                           </Button>
                         )}
-                        {isAdmin &&
-                          ['candidate', 'rejected', 'validating', 'training'].includes(row.status) && (
+                        {isAdmin && row.status === 'candidate' && (
                           <Button
                             size="sm"
                             variant="primary"
@@ -299,7 +306,8 @@ export default function ModelsPage() {
                             Khôi phục (candidate)
                           </Button>
                         )}
-                        {isAdmin && row.status !== 'rejected' && row.status !== 'archived' && (
+                        {isAdmin &&
+                          ['candidate', 'validating', 'training'].includes(row.status) && (
                           <Button
                             size="sm"
                             variant="danger"
@@ -309,7 +317,7 @@ export default function ModelsPage() {
                             Từ chối
                           </Button>
                         )}
-                        {isAdmin && row.status !== 'archived' && row.status !== 'training' && (
+                        {isAdmin && ['approved', 'rejected'].includes(row.status) && (
                           <Button
                             size="sm"
                             variant="ghost"

@@ -10,6 +10,7 @@ export type Regime =
   | 'EARLY_TREND_DOWN'
   | 'TRANSITION'
   | 'HIGH_VOLATILITY'
+  | 'TRADE_ENS'
   | 'UNKNOWN';
 
 export type Permission = 'BUY_ONLY' | 'SELL_ONLY' | 'NO_TRADE';
@@ -65,6 +66,10 @@ export interface RegimeLatest {
   reason_codes: string[];
   permission: Permission;
   data_age_minutes: number;
+  engine?: 'hmm_rf' | 'trade_ens';
+  trade_ens?: TradeSignal;
+  message?: string;
+  stale?: boolean;
 }
 
 export interface RegimeHistoryEntry {
@@ -173,7 +178,11 @@ export interface DashboardStats {
   data_freshness: Partial<Record<Timeframe, FreshnessInfo>>;
   last_sync: SyncLog[];
   last_quality_reports: QualityReport[];
-  active_models: { hmm: ActiveModelRef[]; random_forest: ActiveModelRef[] };
+  active_models: {
+    hmm: ActiveModelRef[];
+    random_forest: ActiveModelRef[];
+    trade_ens: ActiveModelRef[];
+  };
 }
 
 // ---------- Models ----------
@@ -409,6 +418,8 @@ export interface HistoryRun {
   data_end: string | null;
   hmm_model_version_id: number | null;
   rf_model_version_id: number | null;
+  /** null/undefined = model default; [] = all hours; list = explicit UTC entry hours. */
+  allowed_entry_hours_utc?: number[] | null;
   error: string | null;
   created_at: string;
   finished_at: string | null;
@@ -466,6 +477,20 @@ export interface HistoryBarsResponse {
   limit: number;
   offset: number;
   bars: HistoryBar[];
+}
+
+/** Compact regime series — labels only, used for chart bands and strips. */
+export interface HistoryRegimeBandBar {
+  ts: string;
+  regime: Regime | null;
+  confidence: number | null;
+  reference_regime: Regime | null;
+}
+
+export interface HistoryRegimeBandResponse {
+  run_id: number;
+  total: number;
+  bars: HistoryRegimeBandBar[];
 }
 
 export interface HistorySegment {
@@ -746,4 +771,396 @@ export interface OutcomeStats {
 export interface ScheduleRunResponse {
   status: string;
   run_id: number;
+}
+
+// ---- Next-bar forecast ----
+
+export type ForecastDirection = 'UP' | 'DOWN' | 'FLAT';
+
+export interface BarForecast {
+  id: number;
+  symbol: string;
+  timeframe: string;
+  ts: string;
+  target_ts: string;
+  direction: ForecastDirection;
+  probability_up: number;
+  confidence: number;
+  regime: string | null;
+  method: string;
+  note: string | null;
+  actual_direction: ForecastDirection | null;
+  actual_open: number | null;
+  actual_close: number | null;
+  correct: boolean | null;
+  pending?: boolean;
+}
+
+export interface ForecastStats {
+  scored: number;
+  accuracy: number | null;
+  by_direction: Record<string, { n: number; correct: number; accuracy: number | null }>;
+  note: string;
+}
+
+export interface ForecastNextResponse extends BarForecast {
+  stats: ForecastStats;
+  generated_at: string;
+}
+
+export interface ForecastHistoryResponse {
+  total: number;
+  limit: number;
+  offset: number;
+  forecasts: BarForecast[];
+}
+
+// ---- Telegram notifications ----
+
+export type TelegramStatus = 'pending' | 'sent' | 'skipped' | 'failed';
+
+export interface TelegramMessage {
+  id: number;
+  kind: string;
+  status: TelegramStatus;
+  symbol: string;
+  signal: string | null;
+  previous_signal: string | null;
+  bar_ts: string | null;
+  price: number | null;
+  confidence: number | null;
+  text: string;
+  reason: string | null;
+  message_id: number | null;
+  error: string | null;
+  created_at: string;
+  sent_at: string | null;
+}
+
+export interface TelegramThrottle {
+  check_interval_seconds: number;
+  min_bar_seconds: number;
+  min_bar_minutes: number;
+  cooldown_left_seconds: number | null;
+  signals_suppressed_recent: number;
+  note: string;
+}
+
+export interface TelegramStatusResponse {
+  enabled: boolean;
+  configured: boolean;
+  chat_id: string | null;
+  counts: { total: number; sent: number; skipped: number; failed: number };
+  throttle?: TelegramThrottle;
+  last: {
+    id: number;
+    status: TelegramStatus;
+    signal: string | null;
+    reason: string | null;
+    created_at: string;
+    error: string | null;
+  } | null;
+}
+
+export interface TelegramMessagesResponse {
+  total: number;
+  limit: number;
+  offset: number;
+  messages: TelegramMessage[];
+}
+
+// ---- Direction accuracy (does the trend direction match realised price?) ----
+
+export interface DirectionAccuracyRegime {
+  total: number;
+  correct?: number;
+  wrong?: number;
+  accuracy_pct: number | null;
+  mean_move_pct_correct?: number | null;
+  mean_move_pct_wrong?: number | null;
+  mean_bars_correct?: number | null;
+  mean_bars_wrong?: number | null;
+}
+
+export interface DirectionAccuracyBarRow {
+  bars: number;
+  scored?: number;
+  accuracy_pct: number | null;
+}
+
+export interface DirectionAccuracyResponse {
+  run_id: number;
+  per_segment: {
+    by_regime: Record<string, DirectionAccuracyRegime>;
+    overall: { total: number; correct: number; accuracy_pct: number | null };
+  };
+  /** Exact TREND_* only (EARLY_TREND advisories are NO_TRADE). */
+  per_segment_tradeable?: {
+    by_regime: Record<string, DirectionAccuracyRegime>;
+    overall: { total: number; correct: number; accuracy_pct: number | null };
+  };
+  per_bar?: {
+    by_regime: Record<string, DirectionAccuracyBarRow>;
+    note: string;
+  };
+  labels: Record<string, string>;
+  definition: string;
+  sample?: {
+    segments: number;
+    reliability: 'insufficient' | 'low' | 'moderate' | 'ok';
+    note: string;
+  };
+}
+
+// ---- Wrong-direction analysis ----
+
+export interface WrongDirectionLoss {
+  mean_adverse_pct: number;
+  median_adverse_pct: number;
+  worst_adverse_pct: number;
+  p90_adverse_pct: number;
+  mean_adverse_usd: number;
+}
+
+export interface WrongDirectionResponse {
+  run_id: number;
+  total: number;
+  wrong_total: number;
+  wrong_pct: number | null;
+  loss: WrongDirectionLoss | null;
+  loss_distribution?: Record<string, number>;
+  profile?: {
+    bars: { correct_mean: number; wrong_mean: number };
+    duration_min: { correct_mean: number; wrong_mean: number };
+    adx: { correct_mean: number; wrong_mean: number };
+    atr: { correct_mean: number; wrong_mean: number };
+  };
+  by_length?: Record<
+    string,
+    { total: number; wrong: number; wrong_pct: number; mean_adverse_pct: number | null }
+  >;
+  failure_type?: {
+    never_moved_favourably: number;
+    reversed_after_favourable_move: number;
+    closed_flat: number;
+    note: string;
+  };
+  by_hour_utc?: Record<string, { total: number; wrong: number; wrong_pct: number }>;
+  worst_hours?: Array<{ hour: string; wrong_pct: number; samples: number }>;
+  worst_calls?: Array<{
+    regime: string;
+    adverse_pct: number;
+    move_pct: number;
+    bars: number;
+    adx: number;
+  }>;
+  by_direction?: Record<
+    string,
+    { total: number; wrong: number; wrong_pct: number; mean_adverse_pct: number | null; mean_bars_wrong: number | null }
+  >;
+  definition?: string;
+}
+
+// ---- Admin: users + api keys + jobs ----
+
+export type AdminRole = 'admin' | 'analyst' | 'viewer';
+
+export interface UserRow {
+  id: number;
+  username: string;
+  role: AdminRole;
+  is_active: boolean;
+  created_at: string | null;
+}
+
+export interface UserListResponse {
+  total: number;
+  limit: number;
+  offset: number;
+  users: UserRow[];
+  active_admins: number;
+}
+
+export interface ApiKeyRow {
+  id: number;
+  name: string;
+  role: string;
+  is_active: boolean;
+  fingerprint: string;
+  last_used_at: string | null;
+  created_at: string | null;
+}
+
+export interface ApiKeysResponse {
+  keys: ApiKeyRow[];
+}
+
+export interface JobRow {
+  id: number;
+  job_type: string;
+  status: 'pending' | 'running' | 'done' | 'failed';
+  params: Record<string, unknown> | null;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  created_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  duration_seconds: number | null;
+}
+
+export interface JobsResponse {
+  total: number;
+  limit: number;
+  offset: number;
+  jobs: JobRow[];
+  executor: { max_workers: number; running: boolean; durable: boolean };
+}
+
+// ---- trade_ens (model mới, chạy song song HMM/RF cũ) ----
+
+export interface TradeMetrics {
+  n: number;
+  wins: number;
+  win_rate: number | null;
+  wilson_low: number | null;
+  wilson_high: number | null;
+  mean_pnl: number;
+  total_pnl: number;
+  profit_factor: number | null;
+  max_drawdown: number;
+  t_stat: number | null;
+  avg_win: number | null;
+  avg_loss: number | null;
+  breakeven_win_rate: number | null;
+  equity_curve: number[];
+}
+
+export interface TradeModelStatus {
+  model_name: string;
+  approved: boolean;
+  code?: string;
+  feature_version?: string;
+  model_version_id?: number;
+  version?: number;
+  artifact_path?: string | null;
+  trained_until?: string | null;
+  threshold?: number | null;
+  thresholds?: Record<string, number> | null;
+  allowed_sides?: string[] | null;
+  quantile?: number | null;
+  barrier?: Record<string, number>;
+  walk_forward?: {
+    passed: boolean | null;
+    gate: {
+      min_trades: number;
+      target_win_rate: number;
+      min_mean_pnl?: number;
+      min_profit_factor?: number;
+      breakeven_win_rate?: number | null;
+      wilson_low: number | null;
+    } | null;
+    oos_metrics: TradeMetrics | null;
+    naive_win_rate: number | null;
+    holdout_rows: number | null;
+  };
+  holdout_metrics?: TradeMetrics | null;
+  warnings?: string[];
+}
+
+export interface TradeSignal {
+  symbol: string;
+  timeframe: string;
+  signal: 'LONG' | 'SHORT' | 'NO_TRADE';
+  tradeable: boolean;
+  research_only: boolean;
+  p_long: number;
+  p_short: number;
+  threshold: number;
+  thresholds: Record<string, number>;
+  allowed_sides: string[];
+  price: number;
+  entry_price: number;
+  tp_price: number | null;
+  sl_price: number | null;
+  atr: number;
+  spread_usd: number;
+  bar_ts: string;
+  bar_close_ts: string;
+  expires_at: string;
+  data_age_seconds: number;
+  stale: boolean;
+  source: string;
+  model_version_id: number;
+  model_name: string;
+  feature_version: string;
+  barrier?: Record<string, number> | null;
+  tick_age_seconds: number | null;
+  warnings: string[];
+  cached: boolean;
+}
+
+export interface TradeHistoryBar {
+  ts: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  p_long: number;
+  p_short: number;
+  signal: 'LONG' | 'SHORT' | 'NO_TRADE';
+  reference_regime: string | null;
+  reference_reason: string | null;
+  atr: number | null;
+}
+
+export interface TradeHistoryTrade {
+  direction: 'LONG' | 'SHORT';
+  pnl: number;
+  entry_idx: number;
+  exit_idx: number;
+  entry_ts: string;
+  exit_ts: string;
+  bars: number;
+  exit_reason: string | null;
+}
+
+export interface TradeHistory {
+  model_version_id: number;
+  model_name: string;
+  feature_version: string;
+  threshold: number;
+  thresholds: Record<string, number>;
+  allowed_sides: string[];
+  barrier?: Record<string, number> | null;
+  in_sample: boolean;
+  source: string;
+  bars: TradeHistoryBar[];
+  trades: TradeHistoryTrade[];
+  metrics: TradeMetrics;
+  equity_curve: number[];
+  by_context: Record<string, { n: number; win_rate: number; mean_pnl: number; total_pnl: number }>;
+  warnings: string[];
+  cached: boolean;
+}
+
+export interface TradeDeployability {
+  model_name: string;
+  approved: boolean;
+  model_version_id?: number;
+  version?: number;
+  allowed_sides?: string[];
+  model_ready?: boolean;
+  demo_ready?: boolean;
+  live_ready?: boolean;
+  data_fresh?: boolean;
+  source?: string | null;
+  latest_bar_ts?: string | null;
+  data_age_minutes?: number | null;
+  data_threshold_minutes?: number;
+  oos_metrics?: TradeMetrics | null;
+  holdout_metrics?: TradeMetrics | null;
+  gate?: Record<string, unknown> | null;
+  blockers: string[];
+  warnings: string[];
+  note?: string;
 }

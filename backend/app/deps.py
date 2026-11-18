@@ -1,4 +1,5 @@
 """FastAPI dependencies: current user, roles, ingestion API key."""
+import hmac
 import logging
 
 import jwt
@@ -6,7 +7,7 @@ from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from app.config import settings
+from app.config import WEAK_SECRETS, settings
 from app.db import get_db
 from app.models import ApiKey, User
 from app.security.auth import decode_access_token, hash_api_key
@@ -52,6 +53,10 @@ def ingest_identity(
         row.last_used_at = utcnow()
         db.commit()
         return {"collector_id": row.name, "auth": "db_key"}
-    if x_api_key == settings.api_key:  # bootstrap fallback from env
+    # Bootstrap fallback from env — constant-time compare, and never accept an
+    # unset/placeholder key (registry hashing above is the real path).
+    if settings.api_key not in WEAK_SECRETS and hmac.compare_digest(
+        x_api_key, settings.api_key
+    ):
         return {"collector_id": "env-key", "auth": "env_key"}
     raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid API key")

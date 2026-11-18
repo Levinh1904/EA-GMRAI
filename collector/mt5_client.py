@@ -41,29 +41,77 @@ class Mt5Client:
 
     # ---- lifecycle ----
 
+    @staticmethod
+    def _error_hint(err: tuple | list | None) -> str:
+        code = err[0] if err else None
+        if code == -6:
+            return (
+                "Authorization failed: open the FTMO MT5 terminal and log in manually, "
+                "or verify MT5_LOGIN/MT5_PASSWORD/MT5_SERVER. Also check MT5_PATH points "
+                "to the FTMO terminal64.exe, not a different MetaTrader installation."
+            )
+        if code == -10004:
+            return (
+                "No IPC connection: check MT5_PATH (terminal64.exe), make sure only one "
+                "terminal is running, use 64-bit Python + 64-bit terminal, and run the "
+                "collector as the same Windows user/elevation as the terminal."
+            )
+        return "Check that the MT5 terminal is running, logged in, and reachable by this Python process."
+
     def initialize(self) -> bool:
-        """Attach to the running MT5 terminal (or start it via mt5_path)."""
-        kwargs: dict[str, Any] = {}
+        """Attach to the running MT5 terminal, then auto-login if configured.
+
+        The first attempt is deliberately credential-free: if the user already
+        logged in manually, we must not disturb that session. Only when it
+        fails do we retry with MT5_LOGIN/PASSWORD/SERVER from local .env.
+        """
+        base: dict[str, Any] = {"timeout": 60000}
         if self.mt5_path:
-            kwargs["path"] = self.mt5_path
-        if not mt5.initialize(**kwargs):
-            raise Mt5Unavailable(f"MT5 initialize failed: {mt5.last_error()}")
+            base["path"] = self.mt5_path
+        attempts = [base]
+        if self.login and self.password and self.server:
+            attempts.append(
+                {
+                    **base,
+                    "login": self.login,
+                    "password": self.password,
+                    "server": self.server,
+                }
+            )
+
+        err = None
+        for idx, kwargs in enumerate(attempts):
+            if mt5.initialize(**kwargs):
+                break
+            err = mt5.last_error()
+            logger.warning("MT5 initialize attempt %d failed: %s", idx + 1, err)
+            try:
+                mt5.shutdown()
+            except Exception:
+                pass
+        else:
+            raise Mt5Unavailable(
+                f"MT5 initialize failed: {err}. {self._error_hint(err)}"
+            )
 
         info = mt5.terminal_info()
         if info is None or not getattr(info, "connected", False):
-            raise Mt5Unavailable("MT5 terminal is not connected to a trade server")
+            raise Mt5Unavailable(
+                "MT5 terminal is not connected to a trade server. "
+                + self._error_hint(mt5.last_error())
+            )
 
         account = mt5.account_info()
         if account is None:
-            # try automatic login only when credentials are configured locally
+            # Last-resort explicit login for terminals that attached but have no account.
             if self.login and self.password and self.server:
                 if not mt5.login(self.login, password=self.password, server=self.server):
+                    err = mt5.last_error()
                     raise Mt5Unavailable(
-                        "MT5 auto-login failed — log in manually in the MT5 Terminal"
-                        " (FTMO credentials are never required in chat; configure"
-                        " them locally in collector/.env)"
+                        f"MT5 auto-login failed: {err}. {self._error_hint(err)}"
                     )
-            else:
+                account = mt5.account_info()
+            if account is None:
                 raise Mt5Unavailable(
                     "MT5 not logged in — log in manually in the MT5 Terminal, or set"
                     " MT5_LOGIN/MT5_PASSWORD/MT5_SERVER in collector/.env"

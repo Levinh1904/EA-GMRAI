@@ -30,14 +30,37 @@ export const REGIME_BAND_FILL: Record<string, string> = {
   TRANSITION: 'rgba(168, 85, 247, 0.12)',
   HIGH_VOLATILITY: 'rgba(245, 158, 11, 0.16)',
   UNKNOWN: 'rgba(75, 85, 99, 0)',
+  // Live tail: candles newer than the analysed run — shown but not yet
+  // classified by the model (honest "not analysed" marker).
+  LIVE: 'rgba(76, 141, 255, 0.10)',
   // Disagreement strip (History "Bất đồng" mode) — higher-alpha by design so
   // the agree/disagree band is clearly readable as a single strip.
   AGREE: 'rgba(100, 116, 139, 0.55)',
   DISAGREE: 'rgba(244, 63, 94, 0.9)',
 };
 
+/** Opaque strip colours — used when the band is drawn as its own pane. */
+export const REGIME_STRIP_FILL: Record<string, string> = {
+  TREND_UP: '#22c55e',
+  TREND_DOWN: '#ef4444',
+  SIDEWAYS: '#8b98a9',
+  EARLY_TREND_UP: '#14b8a6',
+  EARLY_TREND_DOWN: '#0d9488',
+  EARLY_TREND: '#14b8a6',
+  TRANSITION: '#a855f7',
+  HIGH_VOLATILITY: '#f59e0b',
+  UNKNOWN: '#3f4756',
+  LIVE: '#4c8dff',
+  AGREE: '#64748b',
+  DISAGREE: '#f43f5e',
+};
+
 export function bandFill(regime: string): string {
   return REGIME_BAND_FILL[regime] ?? REGIME_BAND_FILL.UNKNOWN;
+}
+
+export function stripFill(regime: string): string {
+  return REGIME_STRIP_FILL[regime] ?? REGIME_STRIP_FILL.UNKNOWN;
 }
 
 export interface Band {
@@ -64,40 +87,64 @@ class RegimeBandRenderer implements IPrimitivePaneRenderer {
 
     const range = timeScale.getVisibleRange();
     if (!range) return;
-    // Cull: only draw bands intersecting the visible time range.
-    let lo = 0;
-    let hi = bands.length - 1;
-    let first = bands.length;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (bands[mid].end >= (range.from as number)) {
-        first = mid;
-        hi = mid - 1;
-      } else {
-        lo = mid + 1;
-      }
-    }
-    if (first >= bands.length) return;
+    const barPx = Math.max(1, Math.ceil((timeScale.options()?.barSpacing ?? 1) * 1));
 
     target.useBitmapCoordinateSpace((scope) => {
       const ctx = scope.context;
       const height = scope.mediaSize.height * scope.verticalPixelRatio;
       const hpx = scope.horizontalPixelRatio;
+      const vpx = scope.verticalPixelRatio;
       let top = 0;
       let bottom = height;
+      // `bottom*` areas reserve the lower band of the pane for the regime
+      // strip; the candle series shrinks itself via scaleMargins. The upper /
+      // lower halves let Overlay mode stack AI and Reference strips.
       if (prim.area === 'top') bottom = height * 0.55;
-      else if (prim.area === 'bottom') top = height * 0.45;
+      else if (prim.area === 'bottom') top = height * 0.76;
+      else if (prim.area === 'bottomUpper') {
+        top = height * 0.76;
+        bottom = height * 0.88;
+      } else if (prim.area === 'bottomLower') {
+        top = height * 0.88;
+        bottom = height;
+      }
+      const bandH = bottom - top;
 
-      for (let i = first; i < bands.length; i++) {
+      for (let i = 0; i < bands.length; i++) {
         const b = bands[i];
         if (b.start > (range.to as number)) break;
+        if (b.end < (range.from as number)) continue;
+        // NOTE: timeToCoordinate() returns null for timestamps that are not
+        // present in the series data, so never probe `end + 1` — resolve the
+        // band's own end and extend it by one bar's pixel width instead.
         const x1 = timeScale.timeToCoordinate(b.start as Time);
-        const x2 = timeScale.timeToCoordinate(Math.min(b.end + 1, Number(range.to)) as Time);
-        if (x1 == null || x2 == null) continue;
+        if (x1 == null) continue;
+        const x2 = timeScale.timeToCoordinate(b.end as Time);
+        const right = (x2 == null ? x1 : x2) + barPx;
         const bx1 = Math.floor(x1 * hpx);
-        const bw = Math.max(1, Math.ceil((x2 - x1) * hpx));
-        ctx.fillStyle = bandFill(b.regime);
-        ctx.fillRect(bx1, top, bw, bottom - top);
+        let bw = Math.max(1, Math.ceil((right - x1) * hpx));
+        // Clip to the plot area (mediaSize excludes the price scale), so the
+        // strip never paints over the price axis.
+        const plotRight = Math.floor(scope.mediaSize.width * hpx);
+        if (bx1 + bw > plotRight) bw = Math.max(0, plotRight - bx1);
+        if (bw <= 0) continue;
+        ctx.globalAlpha = prim.strip ? 0.9 : 1;
+        ctx.fillStyle = prim.strip ? stripFill(b.regime) : bandFill(b.regime);
+        ctx.fillRect(bx1, top, bw, bandH);
+        ctx.globalAlpha = 1;
+
+        // Label inside wide-enough bands so the strip is readable on its own.
+        if (prim.showLabels && bw > 54 * hpx) {
+          const label = regimeLabel(b.regime);
+          const fontSize = Math.round(10 * vpx);
+          ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`;
+          const textWidth = ctx.measureText(label).width;
+          if (textWidth + 8 * hpx < bw) {
+            ctx.fillStyle = 'rgba(240, 245, 255, 0.92)';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(label, bx1 + 4 * hpx, (top + bottom) / 2);
+          }
+        }
       }
     });
   }
@@ -106,14 +153,20 @@ class RegimeBandRenderer implements IPrimitivePaneRenderer {
 export class RegimeBandPrimitive implements ISeriesPrimitive<Time> {
   bands: Band[] = [];
   visible = true;
-  area: 'full' | 'top' | 'bottom' = 'full';
+  area: 'full' | 'top' | 'bottom' | 'bottomUpper' | 'bottomLower' = 'full';
+  /** Draw opaque strip colours (used when the primitive owns a whole pane). */
+  strip = false;
+  /** Draw the regime name inside wide bands. */
+  showLabels = false;
   timeScale: ReturnType<SeriesAttachedParameter<Time>['chart']['timeScale']> | null = null;
   private requestUpdate: (() => void) | null = null;
   private view: IPrimitivePaneView;
 
   constructor() {
     this.view = {
-      zOrder: () => 'bottom',
+      // 'bottom' paints under the grid/background fills; the strip must sit
+      // above the pane background to be visible at all.
+      zOrder: () => 'normal',
       renderer: () => new RegimeBandRenderer(this),
     };
   }
@@ -138,8 +191,18 @@ export class RegimeBandPrimitive implements ISeriesPrimitive<Time> {
     this.requestUpdate?.();
   }
 
-  setArea(area: 'full' | 'top' | 'bottom'): void {
+  setArea(area: 'full' | 'top' | 'bottom' | 'bottomUpper' | 'bottomLower'): void {
     this.area = area;
+    this.requestUpdate?.();
+  }
+
+  setStrip(strip: boolean): void {
+    this.strip = strip;
+    this.requestUpdate?.();
+  }
+
+  setShowLabels(show: boolean): void {
+    this.showLabels = show;
     this.requestUpdate?.();
   }
 

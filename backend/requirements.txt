@@ -12,6 +12,7 @@ slowapi==0.1.9
 numpy==1.26.4
 pandas==2.2.3
 scikit-learn==1.5.2
+lightgbm>=4.3,<5
 hmmlearn==0.3.2
 joblib==1.4.2
 skl2onnx==1.17.0

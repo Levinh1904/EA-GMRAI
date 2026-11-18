@@ -86,3 +86,91 @@ def test_hmm_artifact_roundtrip(tmp_path, hmm_inputs):
     flt = hmm_filter_from_artifact(art)
     post = flt.posterior(X[:10])
     assert post.shape == (10, 5)
+
+
+# ---------------------------------------------------------------------------
+# Regression: a directional state with a small per-bar return drift must still
+# be recognised as a trend (previously it was mapped to UNKNOWN, so the HMM
+# never emitted TREND_UP at all and every live signal lagged the market).
+# ---------------------------------------------------------------------------
+
+def _state(**kw) -> dict:
+    base = {
+        "n_obs": 500,
+        "occupancy": 0.2,
+        "ret1_mean": 0.0,
+        "ret1_std": 0.001,
+        "adx_mean": 0.22,
+        "ema_slope_mean": 0.0,
+        "efficiency_mean": 0.1,
+        "atr_ratio_mean": 1.0,
+        "di_gap_mean": 0.0,
+        "duration_mean": 12.0,
+        "evidence": "ok",
+    }
+    base.update(kw)
+    return base
+
+
+def test_directional_state_maps_to_trend_up_despite_small_z():
+    """Real artifact case: slope +0.54, di_gap +0.137, adx 0.372, z only 0.196."""
+    stats = {
+        "0": _state(),  # baseline flat
+        "1": _state(ret1_mean=0.000195, ret1_std=0.000996, adx_mean=0.372,
+                    ema_slope_mean=0.538, di_gap_mean=0.137),
+        "2": _state(ret1_mean=-0.00015, ret1_std=0.000642, adx_mean=0.364,
+                    ema_slope_mean=-0.434, di_gap_mean=-0.117),
+        "3": _state(),
+        "4": _state(),
+    }
+    m = map_states(stats, 5)
+    assert m["1"]["regime"] == "TREND_UP", m["1"]
+    assert m["1"]["reason"] == "directional_score_up"
+    assert m["2"]["regime"] == "TREND_DOWN", m["2"]
+    # Directional score is reported so the decision is auditable.
+    assert m["1"]["direction_score"] > 0 > m["2"]["direction_score"]
+
+
+def test_low_adx_never_becomes_trend():
+    """A strong slope with no ADX must not be sold as a trend (ADX gate)."""
+    stats = {
+        "0": _state(ema_slope_mean=3.0, di_gap_mean=0.5, adx_mean=0.05),
+        "1": _state(), "2": _state(), "3": _state(), "4": _state(),
+    }
+    m = map_states(stats, 5)
+    assert m["0"]["regime"] != "TREND_UP", m["0"]
+
+
+def test_flat_low_adx_state_stays_sideways():
+    stats = {str(i): _state() for i in range(5)}
+    m = map_states(stats, 5)
+    assert all(v["regime"] == "SIDEWAYS" for v in m.values()), m
+
+
+def test_mapping_still_emits_high_volatility_and_unknown():
+    stats = {
+        "0": _state(atr_ratio_mean=2.5),  # volatility outlier
+        "1": _state(adx_mean=0.5, ema_slope_mean=0.05, di_gap_mean=0.01,
+                    ret1_mean=0.0002, ret1_std=0.001, duration_mean=20.0),
+        "2": _state(), "3": _state(), "4": _state(),
+    }
+    m = map_states(stats, 5)
+    assert m["0"]["regime"] == "HIGH_VOLATILITY"
+    # Mid-ADX, no real direction, long duration -> UNKNOWN (not forced)
+    assert m["1"]["regime"] == "UNKNOWN", m["1"]
+
+
+def test_semantic_probs_expose_both_directions():
+    """Both TREND_UP and TREND_DOWN must be reachable from a posterior."""
+    stats = {
+        "0": _state(),
+        "1": _state(ema_slope_mean=0.538, di_gap_mean=0.137, adx_mean=0.372,
+                    ret1_mean=0.0002, ret1_std=0.001),
+        "2": _state(ema_slope_mean=-0.434, di_gap_mean=-0.117, adx_mean=0.364,
+                    ret1_mean=-0.0002, ret1_std=0.001),
+        "3": _state(), "4": _state(),
+    }
+    m = map_states(stats, 5)
+    probs = semantic_probabilities(np.array([0.1, 0.6, 0.3, 0.0, 0.0]), m)
+    assert probs.get("TREND_UP", 0.0) > 0.0
+    assert probs.get("TREND_DOWN", 0.0) > 0.0

@@ -9,8 +9,8 @@ import styles from './login.module.css';
 export default function LoginPage() {
   const { user, loading, login } = useAuth();
   const router = useRouter();
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin-change-me');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -76,9 +76,6 @@ export default function LoginPage() {
             {submitting ? 'Đang đăng nhập…' : 'Đăng nhập'}
           </button>
         </form>
-        <div className={styles.hint}>
-          Tài khoản phát triển: <code>admin</code> / <code>admin-change-me</code>
-        </div>
       </div>
       <div className={styles.disclaimer}>
         GMRAI là công cụ nghiên cứu. Kết quả phân tích không phải lời khuyên đầu tư và không gửi

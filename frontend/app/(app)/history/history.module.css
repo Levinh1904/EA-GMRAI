@@ -267,3 +267,64 @@
 .filterBarActive {
   border-color: var(--accent);
 }
+
+/* ---------- Entry-hour selector (re-run history with a session filter) ---------- */
+
+.sessionFilter {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+}
+
+.sessionHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sessionValue {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text);
+}
+
+.hourGrid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.hourBtn {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.hourBtn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.hourBtnActive {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #08111f;
+  font-weight: 700;
+}
+
+.sessionActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}

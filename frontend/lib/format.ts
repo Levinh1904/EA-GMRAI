@@ -13,6 +13,29 @@ export function fmtUtc(iso: string | null | undefined): string {
   return `${d.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
 }
 
+/**
+ * "2026-11-13 17:15 UTC · 00:15 giờ máy".
+ *
+ * Every timestamp in this system is UTC, but Telegram renders message times in
+ * the phone's timezone. Showing both makes it obvious that a 00:15 message and
+ * a 17:15 bar are the same moment, not a bug.
+ */
+export function fmtUtcWithLocal(iso: string | null | undefined): string {
+  const d = toDate(iso);
+  if (!d) return '—';
+  const utc = d.toISOString().slice(0, 16).replace('T', ' ');
+  const local = d.toLocaleTimeString('vi-VN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  const offsetMin = -d.getTimezoneOffset();
+  const sign = offsetMin >= 0 ? '+' : '-';
+  const abs = Math.abs(offsetMin);
+  const gmt = `GMT${sign}${Math.floor(abs / 60)}${abs % 60 ? `:${String(abs % 60).padStart(2, '0')}` : ''}`;
+  return `${utc} UTC · ${local} (${gmt})`;
+}
+
 /** "2026-11-09 16:04:05 UTC" */
 export function fmtUtcSec(iso: string | null | undefined): string {
   const d = toDate(iso);

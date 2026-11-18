@@ -32,6 +32,7 @@ from app.services.history import (
     reference_labels,
     run_history_job,
 )
+from app.services import stats_cache
 from app.services.worker import worker
 from app.timeutil import ensure_utc
 
@@ -50,17 +51,56 @@ def _get_run_or_404(db: Session, run_id: int) -> RegimeHistoryRun:
     return run
 
 
+def _cached_stats(run: RegimeHistoryRun, kind: str, compute, params: dict | None = None):
+    """Serve an expensive stats result from the per-process cache.
+
+    Only *completed* runs are cached: `regime_history_bars` / `_segments` are
+    written once for a done run, so a cached answer cannot go stale. A running
+    run is recomputed every time (it is still being written).
+    """
+    if run.status != "done":
+        return compute()
+    key = (run.id, kind, tuple(sorted((params or {}).items())))
+    return stats_cache.get_or_compute(key, compute)
+
+
+def _parse_hours(raw: str | None) -> list[int] | None:
+    """Parse `hours=6,8,14,17` (UTC). None=model default; ''=all hours."""
+    if raw is None:
+        return None
+    raw = raw.strip().lower()
+    if raw in ("", "all", "*"):
+        return []
+    try:
+        values = sorted({int(part.strip()) for part in raw.split(",") if part.strip()})
+    except ValueError:
+        raise HTTPException(400, "hours must be comma-separated integers 0-23")
+    if not values or any(v < 0 or v > 23 for v in values):
+        raise HTTPException(400, "hours must be comma-separated integers 0-23")
+    return values
+
+
 @history_router.post("/run")
 def start_run(
     regenerate: bool = Query(False),
     symbol: str = Query("XAUUSD"),
+    hours: str | None = Query(
+        None,
+        description="UTC entry hours, e.g. 6,8,14,17. Empty/all = no filter; omit = model default.",
+    ),
     _: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    run = RegimeHistoryRun(symbol=symbol, timeframe="M15", status="pending", config_json=HistoryConfig(symbol=symbol).to_dict())
+    cfg = HistoryConfig(symbol=symbol, allowed_entry_hours_utc=_parse_hours(hours))
+    run = RegimeHistoryRun(
+        symbol=symbol,
+        timeframe="M15",
+        status="pending",
+        config_json=cfg.to_dict(),
+    )
     db.add(run)
     db.commit()
-    worker.submit("regime_history", {"run_id": run.id}, lambda s: run_history_job(s, run.id, HistoryConfig(symbol=symbol)))
+    worker.submit("regime_history", {"run_id": run.id}, lambda s: run_history_job(s, run.id, cfg))
     return {"status": "scheduled", "run_id": run.id}
 
 
@@ -85,6 +125,7 @@ def list_runs(
                 "data_end": ensure_utc(r.data_end).isoformat() if r.data_end else None,
                 "hmm_model_version_id": r.hmm_model_version_id,
                 "rf_model_version_id": r.rf_model_version_id,
+                "allowed_entry_hours_utc": (r.config_json or {}).get("allowed_entry_hours_utc"),
                 "error": r.error,
                 "created_at": ensure_utc(r.created_at).isoformat(),
                 "finished_at": ensure_utc(r.finished_at).isoformat() if r.finished_at else None,
@@ -185,6 +226,48 @@ def get_bars(
     }
 
 
+@history_router.get("/runs/{run_id}/regime-band")
+def get_regime_band(
+    run_id: int,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Compact per-bar regime series for chart bands (one row per bar, no OHLC).
+
+    `/bars` returns ~630 bytes/bar because it carries OHLC, HMM posteriors, RF
+    probabilities and reference diagnostics. A regime band needs only the label
+    and the timestamp, so this endpoint returns the minimum (~40 bytes/bar) and
+    the chart stops waiting on tens of megabytes to draw a coloured strip.
+    """
+    _get_run_or_404(db, run_id)
+    from app.models import RegimeHistoryBar
+
+    rows = (
+        db.query(
+            RegimeHistoryBar.ts,
+            RegimeHistoryBar.regime,
+            RegimeHistoryBar.confidence,
+            RegimeHistoryBar.reference_regime,
+        )
+        .filter(RegimeHistoryBar.run_id == run_id)
+        .order_by(RegimeHistoryBar.ts)
+        .all()
+    )
+    return {
+        "run_id": run_id,
+        "total": len(rows),
+        "bars": [
+            {
+                "ts": ensure_utc(r[0]).isoformat(),
+                "regime": r[1],
+                "confidence": r[2],
+                "reference_regime": r[3],
+            }
+            for r in rows
+        ],
+    }
+
+
 @history_router.get("/runs/{run_id}/segments")
 def get_segments(
     run_id: int,
@@ -224,16 +307,52 @@ def get_segment(
     raise HTTPException(404, "Segment not found")
 
 
+@history_router.get("/cache/stats")
+def cache_stats(_: User = Depends(require_admin)):
+    """Cache effectiveness for the expensive history stats (admin only)."""
+    return stats_cache.info()
+
+
+@history_router.post("/cache/invalidate")
+def cache_invalidate(
+    run_id: int | None = Query(None),
+    _: User = Depends(require_admin),
+):
+    removed = stats_cache.invalidate(run_id)
+    return {"invalidated": removed, "scope": run_id if run_id else "all"}
+
+
+@history_router.post("/predictions/backfill")
+def predictions_backfill(
+    symbol: str = Query("XAUUSD"),
+    max_bars: int = Query(500, ge=1, le=5000),
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Score closed bars that have no prediction yet (gap after downtime).
+
+    Runs automatically every few minutes; this endpoint exists to force it
+    immediately and to see what was missing.
+    """
+    from app.services.prediction import backfill_predictions
+
+    return backfill_predictions(db, symbol, max_bars=max_bars)
+
+
 @history_router.get("/runs/{run_id}/stats/duration")
 def stats_duration(
     run_id: int,
     _: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _get_run_or_404(db, run_id)
-    segs = load_run_segments(db, run_id)
-    return {"run_id": run_id, "regimes": duration_statistics(segs),
-            "total_transitions": transition_count(segs)}
+    run = _get_run_or_404(db, run_id)
+
+    def _compute():
+        segs = load_run_segments(db, run_id)
+        return {"run_id": run_id, "regimes": duration_statistics(segs),
+                "total_transitions": transition_count(segs)}
+
+    return _cached_stats(run, "duration", _compute)
 
 
 @history_router.get("/runs/{run_id}/stats/trends")
@@ -242,8 +361,11 @@ def stats_trends(
     _: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _get_run_or_404(db, run_id)
-    return {"run_id": run_id, **trend_analysis(load_run_segments(db, run_id))}
+    run = _get_run_or_404(db, run_id)
+    return _cached_stats(
+        run, "trends",
+        lambda: {"run_id": run_id, **trend_analysis(load_run_segments(db, run_id))},
+    )
 
 
 @history_router.get("/runs/{run_id}/stats/sideways")
@@ -252,8 +374,11 @@ def stats_sideways(
     _: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _get_run_or_404(db, run_id)
-    return {"run_id": run_id, **sideways_analysis(load_run_segments(db, run_id))}
+    run = _get_run_or_404(db, run_id)
+    return _cached_stats(
+        run, "sideways",
+        lambda: {"run_id": run_id, **sideways_analysis(load_run_segments(db, run_id))},
+    )
 
 
 @history_router.get("/runs/{run_id}/stats/early_trend")
@@ -264,9 +389,13 @@ def stats_early_trend(
     db: Session = Depends(get_db),
 ):
     run = _get_run_or_404(db, run_id)
-    bars = load_run_bars(db, run_id)
-    labels = reference_labels(db, run)
-    return {"run_id": run_id, **early_trend_analysis(bars, labels, window=window)}
+
+    def _compute():
+        bars = load_run_bars(db, run_id)
+        labels = reference_labels(db, run)
+        return {"run_id": run_id, **early_trend_analysis(bars, labels, window=window)}
+
+    return _cached_stats(run, "early_trend", _compute, {"window": window})
 
 
 @history_router.get("/runs/{run_id}/stats/transitions")
@@ -275,8 +404,11 @@ def stats_transitions(
     _: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _get_run_or_404(db, run_id)
-    return {"run_id": run_id, **transition_matrix(load_run_segments(db, run_id))}
+    run = _get_run_or_404(db, run_id)
+    return _cached_stats(
+        run, "transitions",
+        lambda: {"run_id": run_id, **transition_matrix(load_run_segments(db, run_id))},
+    )
 
 
 @history_router.get("/runs/{run_id}/stats/periods")
@@ -286,9 +418,13 @@ def stats_periods(
     _: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _get_run_or_404(db, run_id)
-    return {"run_id": run_id,
-            **period_aggregation(load_run_bars(db, run_id), load_run_segments(db, run_id), period)}
+    run = _get_run_or_404(db, run_id)
+    return _cached_stats(
+        run, "periods",
+        lambda: {"run_id": run_id, **period_aggregation(
+            load_run_bars(db, run_id), load_run_segments(db, run_id), period)},
+        {"period": period},
+    )
 
 
 @history_router.get("/runs/{run_id}/stats/multi_tf")
@@ -297,8 +433,11 @@ def stats_multi_tf(
     _: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _get_run_or_404(db, run_id)
-    return {"run_id": run_id, **multi_tf_context(load_run_bars(db, run_id))}
+    run = _get_run_or_404(db, run_id)
+    return _cached_stats(
+        run, "multi_tf",
+        lambda: {"run_id": run_id, **multi_tf_context(load_run_bars(db, run_id))},
+    )
 
 
 @history_router.get("/runs/{run_id}/compare")
@@ -310,16 +449,25 @@ def compare(
     db: Session = Depends(get_db),
 ):
     run = _get_run_or_404(db, run_id)
-    bars = load_run_bars(db, run_id)
     if vs_reference:
-        labels = reference_labels(db, run)
-        return {"run_id": run_id, "mode": "reference_labels", **compare_vs_reference(bars, labels)}
+        def _compute_ref():
+            bars = load_run_bars(db, run_id)
+            labels = reference_labels(db, run)
+            return {"run_id": run_id, "mode": "reference_labels",
+                    **compare_vs_reference(bars, labels)}
+
+        return _cached_stats(run, "compare_reference", _compute_ref)
     if vs_run_id is None:
         raise HTTPException(400, "Need vs_run_id or vs_reference=true")
     other = _get_run_or_404(db, vs_run_id)
-    other_bars = load_run_bars(db, vs_run_id)
-    return {"mode": "run_vs_run",
-            **compare_runs(bars, other_bars, f"run_{run_id}", f"run_{vs_run_id}")}
+
+    def _compute_run():
+        bars = load_run_bars(db, run_id)
+        other_bars = load_run_bars(db, vs_run_id)
+        return {"mode": "run_vs_run",
+                **compare_runs(bars, other_bars, f"run_{run_id}", f"run_{vs_run_id}")}
+
+    return _cached_stats(run, "compare_run", _compute_run, {"vs": vs_run_id})
 
 
 @history_router.get("/runs/{run_id}/stats/vs_reference")
@@ -329,15 +477,61 @@ def stats_vs_reference(
     db: Session = Depends(get_db),
 ):
     run = _get_run_or_404(db, run_id)
-    bars = load_run_bars(db, run_id)
-    from app.ml.history_stats import compare_ai_vs_reference
 
-    return {
-        "run_id": run_id,
-        "reference_version": run.reference_version,
-        "reference_config": run.reference_config_json,
-        **compare_ai_vs_reference(bars),
-    }
+    def _compute():
+        from app.ml.history_stats import compare_ai_vs_reference
+
+        bars = load_run_bars(db, run_id)
+        return {
+            "run_id": run_id,
+            "reference_version": run.reference_version,
+            "reference_config": run.reference_config_json,
+            **compare_ai_vs_reference(bars),
+        }
+
+    return _cached_stats(run, "vs_reference", _compute)
+
+
+@history_router.get("/runs/{run_id}/stats/direction_accuracy")
+def stats_direction_accuracy(
+    run_id: int,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """How often the trend direction matched realised price action.
+
+    `per_segment`: start-of-signal → segment end (the honest "did the call
+    work" number). `per_bar`: did the NEXT closed bar follow the direction.
+    """
+    from app.ml.history_stats import direction_accuracy
+
+    run = _get_run_or_404(db, run_id)
+
+    def _compute():
+        bars = load_run_bars(db, run_id)
+        return {"run_id": run_id,
+                **direction_accuracy(load_run_segments(db, run_id), bars)}
+
+    return _cached_stats(run, "direction_accuracy", _compute)
+
+
+@history_router.get("/runs/{run_id}/stats/wrong_direction")
+def stats_wrong_direction(
+    run_id: int,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Deep statistics on WRONG directional calls: how bad, where, and why."""
+    from app.ml.history_stats import wrong_direction_analysis
+
+    run = _get_run_or_404(db, run_id)
+
+    def _compute():
+        bars = load_run_bars(db, run_id)
+        return {"run_id": run_id,
+                **wrong_direction_analysis(load_run_segments(db, run_id), bars)}
+
+    return _cached_stats(run, "wrong_direction", _compute)
 
 
 @history_router.get("/runs/{run_id}/stats/outcomes")
@@ -382,6 +576,25 @@ def _report_ctx(db: Session, run_id: int) -> dict:
         "multi_tf": multi_tf_context(bars),
         "segments": segs,
     }
+
+
+@history_router.get("/day")
+def analyze_day_endpoint(
+    day: str | None = Query(None, description="UTC date YYYY-MM-DD; defaults to yesterday"),
+    symbol: str = Query("XAUUSD"),
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Per-day regime breakdown ("what happened yesterday").
+
+    Causal: only bars with timestamp before the end of the requested day are
+    used, so inspecting a past day can never see later data."""
+    from app.services.day import DayAnalysisError, analyze_day
+
+    try:
+        return analyze_day(db, day, symbol)
+    except DayAnalysisError as e:
+        raise HTTPException(400, str(e))
 
 
 @history_router.get("/runs/{run_id}/export")

@@ -15,25 +15,27 @@ from app.models import (
     ModelVersion,
 )
 from app.services.prediction import regime_latest
+from app.services.source import active_source
 from app.timeutil import ensure_utc, utcnow
 
 
 def dashboard_stats(db: Session, symbol: str = "XAUUSD") -> dict:
     now = utcnow()
+    active_src = active_source(db, symbol, "M15")
     candle_stats = {}
     data_freshness = {}
     for tf in ("M5", "M15", "H1"):
-        count = (
-            db.query(func.count(MarketCandle.id))
-            .filter(MarketCandle.symbol == symbol, MarketCandle.timeframe == tf)
-            .scalar()
-        ) or 0
-        latest = (
-            db.query(MarketCandle.ts)
-            .filter(MarketCandle.symbol == symbol, MarketCandle.timeframe == tf)
-            .order_by(MarketCandle.ts.desc())
-            .first()
+        q = db.query(func.count(MarketCandle.id)).filter(
+            MarketCandle.symbol == symbol, MarketCandle.timeframe == tf
         )
+        lq = db.query(MarketCandle.ts).filter(
+            MarketCandle.symbol == symbol, MarketCandle.timeframe == tf
+        )
+        if active_src:
+            q = q.filter(MarketCandle.source == active_src)
+            lq = lq.filter(MarketCandle.source == active_src)
+        count = q.scalar() or 0
+        latest = lq.order_by(MarketCandle.ts.desc()).first()
         latest_ts = ensure_utc(latest[0]) if latest else None
         age = (now - latest_ts).total_seconds() / 60.0 if latest_ts else None
         candle_stats[tf] = {"count": int(count), "latest_ts": latest_ts.isoformat() if latest_ts else None}
@@ -81,6 +83,20 @@ def dashboard_stats(db: Session, symbol: str = "XAUUSD") -> dict:
             .order_by(ModelVersion.id.desc())
             .limit(1)
         ],
+        "trade_ens": [
+            {
+                "id": v.id,
+                "version": v.version,
+                "version_id": v.id,
+                "model_id": v.model_id,
+                "created_at": v.created_at.isoformat(),
+                "metrics": v.metrics_json,
+            }
+            for v in db.query(ModelVersion)
+            .filter(ModelVersion.model_type == "trade_ens", ModelVersion.status == "approved")
+            .order_by(ModelVersion.id.desc())
+            .limit(1)
+        ],
     }
 
     return {
@@ -88,6 +104,7 @@ def dashboard_stats(db: Session, symbol: str = "XAUUSD") -> dict:
         "generated_at": now.isoformat(),
         "regime": regime_latest(db, symbol),
         "candles": candle_stats,
+        "data_source": active_src,
         "data_freshness": data_freshness,
         "last_sync": [
             {

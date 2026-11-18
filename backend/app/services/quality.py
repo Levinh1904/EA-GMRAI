@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models import DataQualityReport, MarketCandle
+from app.services.source import active_source
 from app.timeutil import ensure_utc, timeframe_seconds, utcnow
 
 logger = logging.getLogger("gmrai.quality")
@@ -33,15 +34,19 @@ def run_quality_check(
     symbol: str = "XAUUSD",
     timeframe: str = "M15",
     now: datetime | None = None,
+    source: str | None = None,
 ) -> dict:
+    """Quality check on ONE data source. Mixing feeds would report fake gaps
+    and fake duplicate timestamps, so the active source is resolved first."""
     now = now or utcnow()
     period = timeframe_seconds(timeframe)
-    rows = (
-        db.query(MarketCandle.ts)
-        .filter(MarketCandle.symbol == symbol, MarketCandle.timeframe == timeframe)
-        .order_by(MarketCandle.ts)
-        .all()
+    eff_source = active_source(db, symbol, timeframe, source)
+    q = db.query(MarketCandle.ts).filter(
+        MarketCandle.symbol == symbol, MarketCandle.timeframe == timeframe
     )
+    if eff_source:
+        q = q.filter(MarketCandle.source == eff_source)
+    rows = q.order_by(MarketCandle.ts).all()
     times = [ensure_utc(r[0]) for r in rows]
 
     gaps, weekend_gaps, duplicates = [], [], 0
@@ -64,18 +69,17 @@ def run_quality_check(
                     )
         prev = t
 
-    bad_candles = (
-        db.query(func.count(MarketCandle.id))
-        .filter(
-            MarketCandle.symbol == symbol,
-            MarketCandle.timeframe == timeframe,
-            (MarketCandle.high < MarketCandle.low)
-            | (MarketCandle.open <= 0)
-            | (MarketCandle.high < func.max(MarketCandle.open, MarketCandle.close))
-            | (MarketCandle.low > func.min(MarketCandle.open, MarketCandle.close)),
-        )
-        .scalar()
-    ) or 0
+    bad_q = db.query(func.count(MarketCandle.id)).filter(
+        MarketCandle.symbol == symbol,
+        MarketCandle.timeframe == timeframe,
+        (MarketCandle.high < MarketCandle.low)
+        | (MarketCandle.open <= 0)
+        | (MarketCandle.high < func.max(MarketCandle.open, MarketCandle.close))
+        | (MarketCandle.low > func.min(MarketCandle.open, MarketCandle.close)),
+    )
+    if eff_source:
+        bad_q = bad_q.filter(MarketCandle.source == eff_source)
+    bad_candles = bad_q.scalar() or 0
 
     latest = times[-1] if times else None
     stale = latest is not None and (now - latest).total_seconds() > settings.max_age_minutes(timeframe) * 60
@@ -96,6 +100,7 @@ def run_quality_check(
             "gaps": gaps[:200],
             "weekend_gaps_count": len(weekend_gaps),
             "stale": stale,
+            "source": eff_source,
         },
     )
     db.add(report)

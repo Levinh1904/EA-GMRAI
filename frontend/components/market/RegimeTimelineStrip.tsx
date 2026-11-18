@@ -7,7 +7,7 @@
 import { Card, EmptyState, ErrorState, Loading } from '@/components/ui/ui';
 import { fmtUtc } from '@/lib/format';
 import { regimeColor, regimeLabel } from '@/lib/regime';
-import type { HistoryBar } from '@/lib/types';
+import type { HistoryRegimeBandBar } from '@/lib/types';
 import styles from './market.module.css';
 
 export function RegimeTimelineStrip({
@@ -18,7 +18,7 @@ export function RegimeTimelineStrip({
   onFocus,
   count = 240,
 }: {
-  bars: HistoryBar[];
+  bars: HistoryRegimeBandBar[];
   loading: boolean;
   error: unknown;
   mode: 'ai' | 'reference';

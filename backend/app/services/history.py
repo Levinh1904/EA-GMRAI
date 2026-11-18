@@ -16,11 +16,13 @@ from app.ml.labels import make_labels
 from app.ml.indicators import atr
 from app.models import (
     MarketCandle,
-    ModelVersion,
     RegimeHistoryBar,
     RegimeHistoryRun,
     RegimeSegment,
 )
+from app.services import stats_cache
+from app.services.registry import get_active_approved_pair
+from app.services.source import active_source
 from app.services.training import load_candles
 from app.timeutil import ensure_utc, timeframe_seconds, utcnow
 
@@ -35,21 +37,7 @@ class HistoryJobError(RuntimeError):
 
 def _pick_source(db: Session, symbol: str) -> str:
     """Never mix brokers: prefer real FTMO data; fall back to labeled demo."""
-    has_ftmo = (
-        db.query(MarketCandle.id)
-        .filter(MarketCandle.symbol == symbol, MarketCandle.timeframe == "M15",
-                MarketCandle.source == "ftmo_mt5")
-        .first()
-    )
-    if has_ftmo:
-        return "ftmo_mt5"
-    row = (
-        db.query(MarketCandle.source)
-        .filter(MarketCandle.symbol == symbol, MarketCandle.timeframe == "M15")
-        .order_by(MarketCandle.ts.desc())
-        .first()
-    )
-    return row[0] if row else "none"
+    return active_source(db, symbol, "M15") or "none"
 
 
 def run_history_job(db: Session, run_id: int, cfg: HistoryConfig) -> dict:
@@ -60,28 +48,22 @@ def run_history_job(db: Session, run_id: int, cfg: HistoryConfig) -> dict:
     run.started_at = utcnow()
     db.commit()
 
-    hmm_version = (
-        db.query(ModelVersion)
-        .filter(ModelVersion.model_type == "hmm", ModelVersion.status == "approved")
-        .order_by(ModelVersion.id.desc())
-        .first()
-    )
-    rf_version = (
-        db.query(ModelVersion)
-        .filter(ModelVersion.model_type == "random_forest", ModelVersion.status == "approved")
-        .order_by(ModelVersion.id.desc())
-        .first()
-    )
-    if hmm_version is None or rf_version is None:
+    pair = get_active_approved_pair(db)
+    if pair is None:
         raise HistoryJobError("No approved model pair — run training and approve first")
+    hmm_version, rf_version = pair
     if not hmm_version.artifact_path or not rf_version.artifact_path:
         raise HistoryJobError("Approved model artifacts missing on disk")
 
     hmm_artifact = load_hmm_artifact(Path(hmm_version.artifact_path))
     rf_model = joblib.load(Path(rf_version.artifact_path))
-    engine_params = (hmm_version.metrics_json or {}).get("engine_params") or {}
+    engine_params = dict((hmm_version.metrics_json or {}).get("engine_params") or {})
     if not engine_params:
         raise HistoryJobError("HMM version has no engine_params in metrics")
+    # Per-run session override: lets /history re-run the same approved model with
+    # different entry hours without editing the model registry.
+    if cfg.allowed_entry_hours_utc is not None:
+        engine_params["allowed_entry_hours_utc"] = list(cfg.allowed_entry_hours_utc)
 
     source = _pick_source(db, cfg.symbol)
     if source == "none":
@@ -141,6 +123,7 @@ def run_history_job(db: Session, run_id: int, cfg: HistoryConfig) -> dict:
     db.query(RegimeHistoryBar).filter(RegimeHistoryBar.run_id == run_id).delete()
     db.query(RegimeSegment).filter(RegimeSegment.run_id == run_id).delete()
     db.commit()
+    stats_cache.invalidate(run_id)
 
     bar_rows = []
     for ts, row in bars.iterrows():
@@ -213,6 +196,8 @@ def run_history_job(db: Session, run_id: int, cfg: HistoryConfig) -> dict:
         seg["run_id"] = run_id
         db.add(RegimeSegment(**seg))
     db.commit()
+    # Segments are now visible; drop any stats cached before this commit.
+    stats_cache.invalidate(run_id)
 
     return {
         "run_id": run_id,

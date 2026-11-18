@@ -63,6 +63,8 @@ export interface HistoryTimelineChartProps {
   refSegments?: RefStripSegment[];
   diffSegments?: DiffStripSegment[];
   height?: number;
+  /** Indices of `bars` that are live tail (not part of the analysed run). */
+  liveFromIndex?: number | null;
 }
 
 const BAR_SEC = 15 * 60; // M15 bar spacing in seconds
@@ -107,12 +109,14 @@ export default function HistoryTimelineChart({
   refSegments = [],
   diffSegments = [],
   height = 560,
+  liveFromIndex = null,
 }: HistoryTimelineChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const aiPrimRef = useRef<RegimeBandPrimitive | null>(null);
   const refPrimRef = useRef<RegimeBandPrimitive | null>(null);
+  const stripPrimRef = useRef<RegimeBandPrimitive | null>(null);
   const initializedRef = useRef(false);
 
   const [legend, setLegend] = useState<LegendBar | null>(null);
@@ -275,10 +279,27 @@ export default function HistoryTimelineChart({
     series.attachPrimitive(aiPrim);
     series.attachPrimitive(refPrim);
 
+    // ---- Regime strip drawn in the bottom band of the pane -----------------
+    // lightweight-charts v5 collapses extra panes under `autoSize`, so the
+    // trend history is drawn in a reserved band at the bottom of the candle
+    // pane instead: candles occupy the top 78% (scale margins below), the
+    // strip the remaining 22% — always pixel-aligned with the candles above.
+    const stripPrim = new RegimeBandPrimitive();
+    stripPrim.setStrip(true);
+    stripPrim.setShowLabels(true);
+    stripPrim.setArea('bottom');
+    series.attachPrimitive(stripPrim);
+
+    // Reserve the bottom band so candles never overlap the strip.
+    series.priceScale().applyOptions({ scaleMargins: { top: 0.06, bottom: 0.24 } });
+
     chartRef.current = chart;
     seriesRef.current = series;
     aiPrimRef.current = aiPrim;
     refPrimRef.current = refPrim;
+    stripPrimRef.current = stripPrim;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).__gmraiStrip = stripPrim;
 
     // Crosshair move → OHLC legend (rAF-debounced).
     let raf = 0;
@@ -377,11 +398,13 @@ export default function HistoryTimelineChart({
       el.removeEventListener('dblclick', onDblClick);
       series.detachPrimitive(aiPrim);
       series.detachPrimitive(refPrim);
+      series.detachPrimitive(stripPrim);
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
       aiPrimRef.current = null;
       refPrimRef.current = null;
+      stripPrimRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -410,40 +433,73 @@ export default function HistoryTimelineChart({
     });
   }, [candleData]);
 
-  // ---- Regime bands per strip mode ----------------------------------------
+  // ---- Regime bands in the dedicated strip pane ---------------------------
+  const stripBands = useMemo<Band[]>(() => {
+    let base: Band[] = aiBands;
+    if (stripMode === 'reference') base = refBands;
+    else if (stripMode === 'disagreement') base = disagreeBands;
+
+    // Bars appended after the analysed run have no model label. Mark them
+    // explicitly so the strip never looks like a filled-in prediction.
+    if (liveFromIndex != null && liveFromIndex >= 0 && liveFromIndex < bars.length) {
+      const firstLive = bars[liveFromIndex];
+      const lastLive = bars[bars.length - 1];
+      if (firstLive && lastLive) {
+        base = [
+          ...base,
+          {
+            start: toSec(firstLive.ts) as number,
+            end: toSec(lastLive.ts) as number,
+            regime: 'LIVE',
+          },
+        ];
+      }
+    }
+    return base;
+  }, [stripMode, aiBands, refBands, disagreeBands, bars, liveFromIndex]);
+
+  // The renderer binary-searches over `bands`, so the array MUST be sorted by
+  // start time (the LIVE tail band is appended after the AI bands, which would
+  // otherwise break the search and hide every earlier band).
+  const sortedStripBands = useMemo<Band[]>(
+    () => [...stripBands].sort((a, b) => a.start - b.start),
+    [stripBands]
+  );
+
+  // Overlay mode: AI strip on top, Reference strip below it.
+  const overlayRefBands = useMemo<Band[]>(
+    () => [...refBands].sort((a, b) => a.start - b.start),
+    [refBands]
+  );
+
   useEffect(() => {
     const ai = aiPrimRef.current;
     const ref = refPrimRef.current;
-    if (!ai || !ref) return;
-    switch (stripMode) {
-      case 'ai':
-        ai.setArea('full');
-        ai.setBands(aiBands);
-        ai.setVisible(true);
-        ref.setVisible(false);
-        break;
-      case 'reference':
-        ai.setVisible(false);
-        ref.setArea('full');
-        ref.setBands(refBands);
-        ref.setVisible(true);
-        break;
-      case 'overlay':
-        ai.setArea('top');
-        ai.setBands(aiBands);
-        ai.setVisible(true);
-        ref.setArea('bottom');
-        ref.setBands(refBands);
-        ref.setVisible(true);
-        break;
-      case 'disagreement':
-        ai.setVisible(false);
-        ref.setArea('full');
-        ref.setBands(disagreeBands);
-        ref.setVisible(true);
-        break;
+    const strip = stripPrimRef.current;
+    if (!ai || !ref || !strip) return;
+
+    // Bands are drawn only in the strip band underneath the candles (never
+    // tinted over the price series), so the trend history reads as its own
+    // timeline row aligned with the chart above.
+    ai.setVisible(false);
+
+    if (stripMode === 'overlay') {
+      // Two stacked strips: AI on top, Reference underneath.
+      strip.setArea('bottomUpper');
+      strip.setBands(sortedStripBands);
+      ref.setArea('bottomLower');
+      ref.setBands(overlayRefBands);
+      ref.setVisible(true);
+      ref.setStrip(true);
+      ref.setShowLabels(true);
+    } else {
+      strip.setArea('bottom');
+      strip.setBands(sortedStripBands);
+      ref.setVisible(false);
     }
-  }, [stripMode, aiBands, refBands, disagreeBands]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (window as any).__gmraiStrip = strip;
+  }, [sortedStripBands, stripMode, overlayRefBands]);
 
   // ---- External focus (segment list / date filter / presets) ---------------
   useEffect(() => {

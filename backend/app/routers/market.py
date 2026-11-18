@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.deps import get_current_user, ingest_identity
 from app.models import MarketCandle, MarketTick, User
+from app.services.source import active_source
 from app.timeutil import ensure_utc, utcnow
 
 market_router = APIRouter(prefix="/market", tags=["market"])
@@ -22,25 +23,8 @@ class TickIn(BaseModel):
 
 
 def _active_source(db: Session, symbol: str, timeframe: str) -> str | None:
-    """Source of the newest candle (single source of truth — never mix brokers).
-
-    Real `ftmo_mt5` data is preferred; demo `synthetic_demo` is only a fallback
-    when no real feed exists yet."""
-    has_ftmo = (
-        db.query(MarketCandle.id)
-        .filter(MarketCandle.symbol == symbol, MarketCandle.timeframe == timeframe,
-                MarketCandle.source == "ftmo_mt5")
-        .first()
-    )
-    if has_ftmo:
-        return "ftmo_mt5"
-    row = (
-        db.query(MarketCandle.source)
-        .filter(MarketCandle.symbol == symbol, MarketCandle.timeframe == timeframe)
-        .order_by(MarketCandle.ts.desc())
-        .first()
-    )
-    return row[0] if row else None
+    """Source of the newest candle (single source of truth — never mix brokers)."""
+    return active_source(db, symbol, timeframe)
 
 
 @market_router.get("/candles")

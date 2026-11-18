@@ -51,3 +51,29 @@ def sub_train_val_split(train: tuple[int, int], val_frac: float = 0.2) -> dict[s
     start, end = train
     cut = start + int((end - start) * (1.0 - val_frac))
     return {"subtrain": (start, cut), "subval": (cut, end)}
+
+
+def purged_subtrain_subval(
+    train: tuple[int, int],
+    val: tuple[int, int],
+    embargo: int,
+) -> dict[str, tuple[int, int]]:
+    """Train/validation regions purged at BOTH boundaries by the label horizon.
+
+    Labels at bar i use prices up to i+embargo, so the last `embargo` bars of
+    each region would leak their label into the next region. Those bars are
+    dropped from the earlier region (never from the later one, which stays a
+    strict out-of-sample target).
+
+    Raises ValueError when a region becomes empty (not enough data for a
+    leak-free split — callers must not silently train on leaking data).
+    """
+    sub_start, train_end = train
+    _, val_end = val
+    subtrain = (sub_start, max(sub_start, train_end - embargo))
+    subval = (train_end, max(train_end, val_end - embargo))
+    if subtrain[1] - subtrain[0] < 1:
+        raise ValueError(f"Empty purged subtrain region: {subtrain}")
+    if subval[1] - subval[0] < 1:
+        raise ValueError(f"Empty purged subval region: {subval} (need more data)")
+    return {"subtrain": subtrain, "subval": subval}

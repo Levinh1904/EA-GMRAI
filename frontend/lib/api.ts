@@ -10,9 +10,18 @@ import type {
   CompareVsRunResponse,
   DashboardStats,
   DurationStatsResponse,
+  ApiKeyRow,
+  ApiKeysResponse,
   EarlyTrendStatsResponse,
+  ForecastHistoryResponse,
+  ForecastNextResponse,
   HistoryBar,
+  JobRow,
+  JobsResponse,
+  UserListResponse,
+  UserRow,
   HistoryBarsResponse,
+  HistoryRegimeBandResponse,
   HistoryRunDetail,
   HistoryRunListResponse,
   HistorySegment,
@@ -39,6 +48,10 @@ import type {
   Timeframe,
   TrainingRunListResponse,
   TrainingStartRequest,
+  TradeHistory,
+  TradeDeployability,
+  TradeModelStatus,
+  TradeSignal,
   TransitionsStatsResponse,
   TrendsStatsResponse,
   User,
@@ -133,6 +146,22 @@ export const api = {
     });
   },
   me: () => apiFetch<User>('/auth/me'),
+  changePassword: (params: {
+    currentPassword: string;
+    newPassword: string;
+    confirmPassword: string;
+  }) =>
+    request<{ status: string; username: string; access_token: string }>(
+      '/auth/change-password',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          current_password: params.currentPassword,
+          new_password: params.newPassword,
+          confirm_password: params.confirmPassword,
+        }),
+      }
+    ),
 
   // Regime
   regimeLatest: () => apiFetch<RegimeLatest>('/regime/latest'),
@@ -183,6 +212,18 @@ export const api = {
       body: JSON.stringify(params),
     }),
 
+  // trade_ens (model XAUUSD M15 mới; không gửi lệnh)
+  tradeModelStatus: () => apiFetch<TradeModelStatus>('/trade-model/status'),
+  tradeModelDeployability: () => apiFetch<TradeDeployability>('/trade-model/deployability'),
+  tradeModelSignal: () => apiFetch<TradeSignal>('/trade-model/signal'),
+  tradeModelHistory: (limit = 500) =>
+    apiFetch<TradeHistory>(`/trade-model/history?limit=${limit}`),
+  startTradeModelTraining: () =>
+    request<{ status: string; job_id: number; run_id: number }>('/trade-model/train', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
   // Backtesting
   backtests: (limit = 20) => apiFetch<BacktestListResponse>(`/backtests?limit=${limit}`),
   backtest: (id: number) => apiFetch<BacktestRun>(`/backtests/${id}`),
@@ -207,6 +248,8 @@ export const api = {
   historyRun: (runId: number) => apiFetch<HistoryRunDetail>(`/history/runs/${runId}`),
   historyBars: (runId: number, limit = 1000, offset = 0) =>
     apiFetch<HistoryBarsResponse>(`/history/runs/${runId}/bars?limit=${limit}&offset=${offset}`),
+  historyRegimeBand: (runId: number) =>
+    apiFetch<HistoryRegimeBandResponse>(`/history/runs/${runId}/regime-band`),
   historySegments: (
     runId: number,
     params: { limit?: number; offset?: number; regime?: string; min_duration?: number; max_duration?: number } = {}
@@ -243,10 +286,15 @@ export const api = {
     apiFetch<VsReferenceStats>(`/history/runs/${runId}/stats/vs_reference`),
   historyOutcomeStats: (runId: number) =>
     apiFetch<OutcomeStats>(`/history/runs/${runId}/stats/outcomes`),
-  startHistoryRun: (params: { regenerate?: boolean; symbol?: string } = {}) => {
+  startHistoryRun: (params: { regenerate?: boolean; symbol?: string; hours?: number[] | null } = {}) => {
     const q = new URLSearchParams();
     if (params.regenerate) q.set('regenerate', 'true');
     if (params.symbol) q.set('symbol', params.symbol);
+    // undefined/null = let the approved model use its own engine_params.
+    // [] = explicit "all hours" (empty query value).
+    if (params.hours !== undefined && params.hours !== null) {
+      q.set('hours', params.hours.join(','));
+    }
     const qs = q.toString();
     return request<ScheduleRunResponse>(`/history/run${qs ? `?${qs}` : ''}`, { method: 'POST' });
   },
@@ -255,6 +303,68 @@ export const api = {
       `/history/runs/${runId}/export?format=${encodeURIComponent(format)}&scope=${encodeURIComponent(scope)}`,
       filename
     ),
+
+  // Telegram notifications
+  sendTelegramTest: () =>
+    request<{ status: string; id: number; error: string | null }>('/telegram/test', {
+      method: 'POST',
+    }),
+  notifyTelegram: (params: { includeForecast?: boolean; symbol?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (params.symbol) q.set('symbol', params.symbol);
+    if (params.includeForecast != null) q.set('include_forecast', String(params.includeForecast));
+    const qs = q.toString();
+    return request<{ status: string; reason?: string; id?: number }>(
+      `/telegram/notify${qs ? `?${qs}` : ''}`,
+      { method: 'POST' }
+    );
+  },
+
+  // Next-bar forecast
+  forecastNext: () => apiFetch<ForecastNextResponse>('/forecast/next'),
+  scoreForecasts: () =>
+    request<{ scored: number; correct: number }>('/forecast/score', { method: 'POST' }),
+
+  // ---- Admin: users ----
+  listUsers: (limit = 100, offset = 0) =>
+    apiFetch<UserListResponse>(`/users?limit=${limit}&offset=${offset}`),
+  createUser: (params: { username: string; password: string; role: string }) =>
+    request<UserRow>('/users', { method: 'POST', body: JSON.stringify(params) }),
+  updateUser: (id: number, params: { role?: string; is_active?: boolean }) =>
+    request<UserRow>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(params) }),
+  adminResetPassword: (id: number, newPassword: string) =>
+    request<{ status: string; username: string }>(`/users/${id}/reset-password`, {
+      method: 'POST',
+      body: JSON.stringify({ new_password: newPassword }),
+    }),
+  deactivateUser: (id: number) =>
+    request<{ status: string }>(`/users/${id}`, { method: 'DELETE' }),
+  purgeUser: (id: number) =>
+    request<{ status: string; username: string; purged: boolean }>(
+      `/users/${id}?purge=true`,
+      { method: 'DELETE' }
+    ),
+
+  // ---- Admin: collector API keys ----
+  listApiKeys: () => apiFetch<ApiKeysResponse>('/api-keys'),
+  createApiKey: (params: { name: string; role?: string }) =>
+    request<{ id: number; name: string; role: string; api_key: string; note: string }>(
+      '/api-keys',
+      { method: 'POST', body: JSON.stringify(params) }
+    ),
+  revokeApiKey: (id: number) =>
+    request<{ status: string }>(`/api-keys/${id}`, { method: 'DELETE' }),
+  restoreApiKey: (id: number) =>
+    request<{ status: string }>(`/api-keys/${id}/restore`, { method: 'POST' }),
+
+  // ---- Background jobs ----
+  listJobs: (limit = 50, status?: string) =>
+    apiFetch<JobsResponse>(
+      `/jobs?limit=${limit}${status ? `&status=${encodeURIComponent(status)}` : ''}`
+    ),
+  getJob: (id: number) => apiFetch<JobRow>(`/jobs/${id}`),
+  cancelJob: (id: number) =>
+    request<{ status: string; id: number }>(`/jobs/${id}/cancel`, { method: 'POST' }),
 };
 
 /** Download a model artifact/ONNX file through the browser (Bearer-authenticated). */

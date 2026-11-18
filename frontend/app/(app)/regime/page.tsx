@@ -1,6 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import {
   Badge,
@@ -161,7 +162,7 @@ function VariantResultsTable({ results }: { results: Record<string, VariantResul
 
 export default function RegimePage() {
   const latest = useApi<RegimeLatest>('/regime/latest', {
-    refreshInterval: 15000,
+    refreshInterval: 5000,
     revalidateOnFocus: true,
   });
   const history = useApi<RegimeHistoryResponse>('/regime/history?limit=500', {
@@ -222,13 +223,27 @@ export default function RegimePage() {
     <div className={styles.stack}>
       <PageHeader
         title="AI Regime"
-        subtitle={`Phân tích chế độ thị trường ${regime.symbol} ${regime.timeframe} — HMM + Random Forest`}
+        subtitle={
+          regime.engine === 'trade_ens'
+            ? `Chỉ trade_ens đang hoạt động — ${regime.symbol} ${regime.timeframe}, không phải HMM/RF regime`
+            : `Phân tích chế độ thị trường ${regime.symbol} ${regime.timeframe} — HMM + Random Forest`
+        }
         right={
           <span className={styles.muted}>
             Tín hiệu lúc <span className="mono">{fmtUtc(regime.timestamp)}</span>
           </span>
         }
       />
+
+      {regime.engine === 'trade_ens' && (
+        <Notice tone="info">
+          {regime.message ?? 'HMM/RF đã tắt; chỉ trade_ens đang hoạt động.'}{' '}
+          Tín hiệu hiện tại: <strong>{regime.trade_ens?.signal ?? 'NO_TRADE'}</strong> ·{' '}
+          p(LONG) {fmtNum(regime.trade_ens?.p_long, 4)} · p(SHORT){' '}
+          {fmtNum(regime.trade_ens?.p_short, 4)}.{' '}
+          <Link href="/signals">Mở trang Trade Ens</Link>.
+        </Notice>
+      )}
 
       {isEarlyTrend(regime.regime) && (
         <Notice tone="warn">
@@ -289,17 +304,31 @@ export default function RegimePage() {
           )}
         </Card>
 
-        <Card title="Xác suất mô hình" subtitle="posterior của HMM và RF">
-          <div className={styles.probTitle}>HMM — hậu nghiệm ngữ nghĩa</div>
-          {hmmProbs.map(([label, v]) => (
-            <ProbRow key={label} label={label} value={v} color={regimeColor(label)} />
-          ))}
-          <div className={styles.probTitle} style={{ marginTop: 14 }}>
-            Random Forest — xác suất lớp
-          </div>
-          {rfProbs.map(([label, v]) => (
-            <ProbRow key={label} label={label} value={v} color={regimeColor(label)} />
-          ))}
+        <Card title="Xác suất mô hình" subtitle={regime.engine === 'trade_ens' ? 'trade_ens (HMM/RF đã tắt)' : 'posterior của HMM và RF'}>
+          {regime.engine === 'trade_ens' ? (
+            <KV
+              items={[
+                { label: 'Tín hiệu', value: regime.trade_ens?.signal ?? 'NO_TRADE' },
+                { label: 'p(LONG)', value: fmtNum(regime.trade_ens?.p_long, 4) },
+                { label: 'p(SHORT)', value: fmtNum(regime.trade_ens?.p_short, 4) },
+                { label: 'Allowed sides', value: (regime.trade_ens?.allowed_sides ?? []).join(', ') || '—' },
+                { label: 'Threshold SHORT', value: fmtNum(regime.trade_ens?.thresholds?.SHORT, 4) },
+              ]}
+            />
+          ) : (
+            <>
+              <div className={styles.probTitle}>HMM — hậu nghiệm ngữ nghĩa</div>
+              {hmmProbs.map(([label, v]) => (
+                <ProbRow key={label} label={label} value={v} color={regimeColor(label)} />
+              ))}
+              <div className={styles.probTitle} style={{ marginTop: 14 }}>
+                Random Forest — xác suất lớp
+              </div>
+              {rfProbs.map(([label, v]) => (
+                <ProbRow key={label} label={label} value={v} color={regimeColor(label)} />
+              ))}
+            </>
+          )}
         </Card>
       </div>
 

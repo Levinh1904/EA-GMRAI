@@ -2,9 +2,12 @@
 import os
 
 os.environ.setdefault("GMRAI_LOGIN_RATE_LIMIT", "1000/minute")
+os.environ.setdefault("GMRAI_PASSWORD_CHANGE_RATE_LIMIT", "1000/minute")
 os.environ.setdefault("GMRAI_AUTOMATION_ENABLED", "false")
 os.environ.setdefault("GMRAI_ARTIFACT_DIR", "/tmp/gmrai_test_artifacts")
 os.environ.setdefault("GMRAI_SECRET_KEY", "test-secret-key-0123456789abcdef0123456789abcdef")
+os.environ.setdefault("GMRAI_API_KEY", "test-ingest-key-0123456789abcdef")
+os.environ.setdefault("GMRAI_ADMIN_PASSWORD", "test-admin-password-0123456789")
 
 import pytest
 from fastapi.testclient import TestClient

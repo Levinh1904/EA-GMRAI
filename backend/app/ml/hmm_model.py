@@ -127,6 +127,45 @@ def _run_lengths(bool_arr: np.ndarray) -> list[int]:
     return runs
 
 
+def _direction_score(
+    st: dict,
+    z: float,
+    trend_z_threshold: float,
+    slope_scale: float,
+    di_scale: float,
+    adx_floor: float,
+) -> float:
+    """Signed direction evidence in [-1, 1]: +up, -down.
+
+    The old mapping required ``|z| >= trend_z_threshold`` on the per-bar
+    return drift alone. A state that spans a whole trend often has a small
+    ``ret1_mean`` relative to its own std (up-moves and pullbacks cancel), so
+    genuine trend states were being rejected as UNKNOWN — the HMM never
+    produced TREND_UP at all.
+
+    This blends three independent directional signals, each squashed to
+    [-1, 1] and weighted, then gates the result by ADX so a low-ADX state can
+    never be labelled a trend no matter how large one component looks:
+
+        slope  = tanh(ema_slope_mean / slope_scale)     (already ATR-normalised)
+        di     = tanh(di_gap_mean   / di_scale)         (+DI - -DI, /100 units)
+        drift  = tanh(z / trend_z_threshold)            (return drift in its own sd)
+
+        direction = (0.35*slope + 0.30*di + 0.35*drift) * gate
+        gate      = min(adx_mean / adx_floor, 1.0)
+    """
+    slope = st.get("ema_slope_mean")
+    di = st.get("di_gap_mean")
+    adx = st.get("adx_mean")
+    if slope is None or di is None or adx is None:
+        return 0.0
+    slope_s = float(np.tanh(slope / slope_scale))
+    di_s = float(np.tanh(di / di_scale))
+    drift_s = float(np.tanh(z / max(trend_z_threshold, 1e-6)))
+    gate = float(min(max(adx / max(adx_floor, 1e-6), 0.0), 1.0))
+    return (0.35 * slope_s + 0.30 * di_s + 0.35 * drift_s) * gate
+
+
 def map_states(
     stats: dict,
     n_states: int,
@@ -134,10 +173,16 @@ def map_states(
     trend_z_threshold: float = 0.30,
     adx_sideways_max: float = 0.25,
     duration_transition_max: float = 4.0,
+    direction_threshold: float = 0.35,
+    slope_scale: float = 0.5,
+    di_scale: float = 0.10,
 ) -> dict:
     """Map hidden states to semantic regimes using train-set statistics only.
 
     Never forces a classification: conflicting/weak evidence -> UNKNOWN.
+    Trend direction is decided by a composite directional score (see
+    `_direction_score`) rather than the return drift alone, so directional
+    states with modest mean returns are still recognised.
     """
     mapping: dict = {}
     atr_means = [stats[str(s)]["atr_ratio_mean"] or 0.0 for s in range(n_states)]
@@ -150,18 +195,46 @@ def map_states(
             continue
         z = st["ret1_mean"] / max(st["ret1_std"], 1e-6)
         is_high_vol = st["atr_ratio_mean"] >= vol_ratio_threshold * vol_median and st["atr_ratio_mean"] > 1.05
+        direction = _direction_score(
+            st, z, trend_z_threshold, slope_scale, di_scale, adx_sideways_max
+        )
         if is_high_vol:
             mapping[str(s)] = {"regime": "HIGH_VOLATILITY", "reason": "atr_ratio_outlier", "evidence": st}
+        elif direction >= direction_threshold:
+            mapping[str(s)] = {
+                "regime": "TREND_UP",
+                "reason": "directional_score_up",
+                "direction_score": round(direction, 4),
+                "evidence": st,
+            }
+        elif direction <= -direction_threshold:
+            mapping[str(s)] = {
+                "regime": "TREND_DOWN",
+                "reason": "directional_score_down",
+                "direction_score": round(direction, 4),
+                "evidence": st,
+            }
         elif abs(z) < trend_z_threshold and st["adx_mean"] < adx_sideways_max:
-            mapping[str(s)] = {"regime": "SIDEWAYS", "reason": "low_return_low_adx", "evidence": st}
-        elif z >= trend_z_threshold and (st["ema_slope_mean"] > 0 or st["di_gap_mean"] > 0):
-            mapping[str(s)] = {"regime": "TREND_UP", "reason": "positive_return_drift", "evidence": st}
-        elif z <= -trend_z_threshold and (st["ema_slope_mean"] < 0 or st["di_gap_mean"] < 0):
-            mapping[str(s)] = {"regime": "TREND_DOWN", "reason": "negative_return_drift", "evidence": st}
+            mapping[str(s)] = {
+                "regime": "SIDEWAYS",
+                "reason": "low_return_low_adx",
+                "direction_score": round(direction, 4),
+                "evidence": st,
+            }
         elif st["duration_mean"] is not None and st["duration_mean"] <= duration_transition_max:
-            mapping[str(s)] = {"regime": "TRANSITION", "reason": "short_duration", "evidence": st}
+            mapping[str(s)] = {
+                "regime": "TRANSITION",
+                "reason": "short_duration",
+                "direction_score": round(direction, 4),
+                "evidence": st,
+            }
         else:
-            mapping[str(s)] = {"regime": "UNKNOWN", "reason": "ambiguous_evidence", "evidence": st}
+            mapping[str(s)] = {
+                "regime": "UNKNOWN",
+                "reason": "ambiguous_evidence",
+                "direction_score": round(direction, 4),
+                "evidence": st,
+            }
     return mapping
 
 

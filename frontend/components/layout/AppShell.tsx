@@ -52,9 +52,11 @@ const NAV_GROUPS: NavGroup[] = [
     statusKey: 'health',
     items: [
       { href: '/regime', label: 'AI Regime', icon: 'regime' },
+      { href: '/history/day', label: 'Lịch sử theo ngày', icon: 'history' },
       { href: '/history', label: 'Lịch sử Regime', icon: 'history' },
       { href: '/history', query: 'tab=reference', label: 'So sánh Reference', icon: 'compare' },
       { href: '/replay', label: 'Replay lịch sử', icon: 'replay' },
+      { href: '/telegram', label: 'Telegram & Dự đoán', icon: 'data' },
     ],
   },
   {
@@ -63,6 +65,7 @@ const NAV_GROUPS: NavGroup[] = [
     statusKey: 'models',
     items: [
       { href: '/training', label: 'Training', icon: 'training' },
+      { href: '/signals', label: 'Trade Ens', icon: 'regime' },
       { href: '/backtesting', label: 'Backtesting', icon: 'backtest' },
       { href: '/models', label: 'Kho mô hình', icon: 'models' },
       { href: '/compare', label: 'So sánh mô hình', icon: 'compare' },
@@ -74,6 +77,7 @@ const NAV_GROUPS: NavGroup[] = [
     statusKey: 'sync',
     items: [
       { href: '/data', label: 'Trung tâm dữ liệu', icon: 'data' },
+      { href: '/admin', label: 'Quản trị', icon: 'settings' },
       { href: '/settings', label: 'Cài đặt', icon: 'settings' },
     ],
   },
@@ -145,7 +149,10 @@ function freshnessStatus(dash: DashboardStats | null, error: unknown, loading: b
 function modelsStatus(dash: DashboardStats | null, error: unknown, loading: boolean): GroupStatus {
   if (loading) return 'loading';
   if (error || !dash) return 'offline';
-  const count = (dash.active_models?.hmm?.length ?? 0) + (dash.active_models?.random_forest?.length ?? 0);
+  const count =
+    (dash.active_models?.hmm?.length ?? 0) +
+    (dash.active_models?.random_forest?.length ?? 0) +
+    (dash.active_models?.trade_ens?.length ?? 0);
   return count > 0 ? 'ok' : 'warn';
 }
 
@@ -168,7 +175,7 @@ function statusTitleFor(key: NavGroup['statusKey'], status: GroupStatus, dash: D
     return stale.length ? `Dữ liệu cũ: ${stale.join(', ')}` : base;
   }
   if (key === 'models') {
-    return `Mô hình hoạt động: ${(dash.active_models?.hmm?.length ?? 0) + (dash.active_models?.random_forest?.length ?? 0)}`;
+    return `Mô hình hoạt động: ${(dash.active_models?.hmm?.length ?? 0) + (dash.active_models?.random_forest?.length ?? 0) + (dash.active_models?.trade_ens?.length ?? 0)}`;
   }
   return base;
 }

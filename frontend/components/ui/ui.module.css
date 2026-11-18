@@ -420,34 +420,132 @@
 .field {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
+  min-width: 0;
 }
 
 .fieldLabel {
-  font-size: 12px;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
   color: var(--text-muted);
 }
 
+/* Every input/select inside a form grid is styled — bare <input> elements used
+   to render with the browser default (white box, wrong height), which is what
+   made the admin/user forms look broken. */
+.field input,
+.field select,
+.field textarea,
 .input,
 .select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--text);
-  padding: 7px 10px;
+  padding: 9px 12px;
   font-size: 13px;
   font-family: inherit;
+  line-height: 1.4;
   outline: none;
-  width: 100%;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
+.field select,
+.select {
+  /* Room for the custom caret. */
+  padding-right: 30px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+    linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+  background-position: calc(100% - 16px) calc(50% - 1px), calc(100% - 11px) calc(50% - 1px);
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+.field input::placeholder,
+.field textarea::placeholder,
+.input::placeholder {
+  color: var(--text-disabled, var(--text-faint));
+}
+
+.field input:hover,
+.field select:hover,
+.input:hover,
+.select:hover {
+  border-color: var(--border-strong, var(--text-faint));
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus,
+.field input:focus-visible,
+.field select:focus-visible,
 .input:focus,
-.select:focus {
+.input:focus-visible,
+.select:focus,
+.select:focus-visible {
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(76, 141, 255, 0.16);
+  background: var(--bg-elev);
+  outline: none;
+}
+
+.field input:disabled,
+.field select:disabled,
+.input:disabled,
+.select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .input[type='number'] {
   font-family: var(--mono);
+}
+
+/* Number inputs: drop the spinner arrows that clash with the dark theme. */
+.field input[type='number']::-webkit-outer-spin-button,
+.field input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.field input[type='number'] {
+  -moz-appearance: textfield;
+}
+
+/* Password field with the reveal toggle. */
+.inputWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.inputWrap input {
+  padding-right: 40px;
+}
+
+.inputAction {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.inputAction:hover {
+  color: var(--text);
+  background: var(--surface-2, rgba(255, 255, 255, 0.06));
 }
 
 .hint {

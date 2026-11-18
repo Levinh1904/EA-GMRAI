@@ -36,6 +36,15 @@ class TokenOut(BaseModel):
     role: str
 
 
+class PasswordChangeIn(BaseModel):
+    """Current password is required: a stolen session token alone must not be
+    enough to lock the real owner out."""
+
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=10, max_length=256)
+    confirm_password: str = Field(min_length=10, max_length=256)
+
+
 class TrainingConfigIn(BaseModel):
     hmm_n_states: int = Field(default=5, ge=2, le=10)
     hmm_n_init: int = Field(default=10, ge=1, le=50)

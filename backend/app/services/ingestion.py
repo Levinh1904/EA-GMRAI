@@ -91,28 +91,30 @@ def ingest_candles(
     inserted = updated = 0
     if valid:
         symbol = valid[0]["symbol"]
-        keys = [(v["ts"],) for v in valid]
-        # Fetch existing rows for these keys.
+        # Keyed by (ts, source): a synthetic seed must never overwrite a real
+        # ftmo_mt5 bar for the same timestamp (and vice versa).
         times = [v["ts"] for v in valid]
+        sources = {v["source"] for v in valid}
         existing = (
             db.execute(
                 select(MarketCandle).where(
                     MarketCandle.symbol == symbol,
                     MarketCandle.timeframe == timeframe,
                     MarketCandle.ts.in_(times),
+                    MarketCandle.source.in_(sources),
                 )
             )
             .scalars()
             .all()
         )
-        existing_by_ts = {ensure_utc(e.ts): e for e in existing}
+        existing_by_key = {(ensure_utc(e.ts), e.source): e for e in existing}
         for v in valid:
-            row = existing_by_ts.get(v["ts"])
+            row = existing_by_key.get((v["ts"], v["source"]))
             if row is None:
                 db.add(MarketCandle(**v))
                 inserted += 1
             else:
-                for field in ("open", "high", "low", "close", "tick_volume", "spread", "real_volume", "source"):
+                for field in ("open", "high", "low", "close", "tick_volume", "spread", "real_volume"):
                     setattr(row, field, v[field])
                 updated += 1
         db.commit()

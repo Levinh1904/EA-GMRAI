@@ -20,8 +20,15 @@ import pandas as pd
 
 from app.ml.features import ALL_FEATURES, M15_FEATURES, build_features
 from app.ml.hmm_model import hmm_filter_from_artifact
-from app.ml.regime_engine import PERMISSIONS, EngineParams, EngineState, combine_scores
+from app.ml.regime_engine import (
+    PERMISSIONS,
+    EngineParams,
+    EngineState,
+    collapse_short_trends_causal,
+    combine_scores,
+)
 from app.ml.rf_model import RF_FEATURE_NAMES, build_rf_features, predict_proba_rf, semantic_probs_array
+from app.ml.state_detector import compute_state_inputs, detect_state_series
 
 N_M15 = len(M15_FEATURES)
 
@@ -32,6 +39,9 @@ class HistoryConfig:
     timeframe: str = "M15"
     gap_split_multiple: float = 1.5  # split a segment when spacing > 1.5x the bar period
     touch_tolerance: float = 0.1  # sideways touch band = 10% of range width
+    # None = use the model's engine_params default. [] = all hours (no filter).
+    # A list (0-23) overrides the model's allowed_entry_hours_utc for this run.
+    allowed_entry_hours_utc: list[int] | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -39,6 +49,7 @@ class HistoryConfig:
             "timeframe": self.timeframe,
             "gap_split_multiple": self.gap_split_multiple,
             "touch_tolerance": self.touch_tolerance,
+            "allowed_entry_hours_utc": self.allowed_entry_hours_utc,
         }
 
 
@@ -79,11 +90,24 @@ def run_historical_inference(
     )
     engine = EngineState(params)
 
+    # Causal current-state detection — supplies the "what is happening now"
+    # evidence that lets the engine avoid reporting SIDEWAYS mid-trend.
+    state_df = detect_state_series(df_m15).reindex(features.index)
+    # Displacement (absolute, in 2-ATR units) drives the signal-quality gate.
+    state_inputs = compute_state_inputs(df_m15).reindex(features.index)
+
     rows: list[dict] = []
     for i, ts in enumerate(features.index):
         hmm_sem = {c: float(semantic_df.iloc[i][c]) for c in semantic_df.columns}
         rf_p = {c: float(rf_probs.iloc[i][c]) for c in rf_probs.columns}
         combined = combine_scores(hmm_sem, rf_p, params.weight_hmm)
+        if ts in state_df.index and pd.notna(state_df.loc[ts, "state"]):
+            combined["state"] = str(state_df.loc[ts, "state"])
+            combined["state_strength"] = float(state_df.loc[ts, "strength"])
+        if ts in state_inputs.index:
+            combined["state_displacement"] = float(state_inputs.loc[ts, "displacement"])
+        combined["h1_trend_context"] = float(features["h1_trend_context"].iloc[i])
+        combined["hour_utc"] = int(ts.hour)
         out = engine.step(combined)
         rows.append(
             {
@@ -103,6 +127,31 @@ def run_historical_inference(
             }
         )
     bars = pd.DataFrame(rows).set_index("ts")
+
+    # Post-pass: a "trend" that lasts only a handful of bars is noise — it
+    # reverses before the segment ends most of the time. Relabelling those runs
+    # as SIDEWAYS removes the false signal without inventing a new one.
+    #
+    # CAUSAL variant: a bar is judged by the run length observed up to it. The
+    # retrospective version needed the run's total length, i.e. future bars,
+    # which inflated every accuracy figure derived from these labels and made
+    # history disagree with what live could ever have produced.
+    if params.min_signal_bars > 1 and len(bars):
+        original_regimes = bars["regime"].tolist()
+        new_regimes, collapsed = collapse_short_trends_causal(
+            original_regimes, params.min_signal_bars
+        )
+        if collapsed:
+            bars["regime"] = new_regimes
+            bars["permission"] = [PERMISSIONS.get(r, "NO_TRADE") for r in new_regimes]
+            bars["reason_codes"] = [
+                (rc + ["SHORT_TREND_COLLAPSED"]) if nr != orr else rc
+                for rc, nr, orr in zip(
+                    bars["reason_codes"].tolist(),
+                    new_regimes,
+                    original_regimes,
+                )
+            ]
 
     # join OHLC from candles (bar open time == candle open time)
     for col in ("open", "high", "low", "close"):

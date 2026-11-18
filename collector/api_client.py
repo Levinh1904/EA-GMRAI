@@ -68,15 +68,14 @@ class ApiClient:
                 time.sleep(delay)
         raise ApiClientError(f"Ingestion failed after {MAX_ATTEMPTS} attempts: {last_err}")
 
-
-def send_tick(self, tick: dict) -> dict:
-    """POST the latest tick to /market/tick (no retry — next tick supersedes)."""
-    url = f"{self.base_url}/api/v1/market/tick"
-    headers = {"X-API-Key": self.api_key, "X-Collector-ID": self.collector_id,
-               "Content-Type": "application/json"}
-    try:
-        resp = requests.post(url, json=tick, headers=headers, timeout=10)
-        return resp.json() if resp.status_code == 200 else {"error": resp.status_code}
-    except requests.RequestException as e:
-        logger.warning("send_tick failed: %s", e)
-        return {"error": str(e)}
+    def send_tick(self, tick: dict) -> dict:
+        """POST the latest tick to /market/tick (no retry — next tick supersedes)."""
+        url = f"{self.base_url}/api/v1/market/tick"
+        headers = {"X-API-Key": self.api_key, "X-Collector-ID": self.collector_id,
+                   "Content-Type": "application/json"}
+        try:
+            resp = requests.post(url, json=tick, headers=headers, timeout=10)
+            return resp.json() if resp.status_code == 200 else {"error": resp.status_code}
+        except requests.RequestException as e:
+            logger.warning("send_tick failed: %s", e)
+            return {"error": str(e)}

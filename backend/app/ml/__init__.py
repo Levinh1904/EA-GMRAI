@@ -26,6 +26,7 @@ from app.ml.regime_engine import (
     combine_scores,
     optimize_thresholds,
     run_engine_over_time,
+    run_engine_over_time_causal,
 )
 from app.ml.rf_model import (
     RF_FEATURE_NAMES,
@@ -71,6 +72,7 @@ __all__ = [
     "purge_train_indices",
     "regime_stability",
     "run_engine_over_time",
+    "run_engine_over_time_causal",
     "run_walk_forward",
     "save_hmm_artifact",
     "semantic_probabilities",

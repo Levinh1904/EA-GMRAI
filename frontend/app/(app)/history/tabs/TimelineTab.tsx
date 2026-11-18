@@ -17,7 +17,7 @@ import type {
   RefStripSegment,
   TimelineStripMode,
 } from '@/components/charts/TradingChart/HistoryTimelineChart';
-import { useAllSegments, useRunBars } from '@/components/charts/TradingChart/useChartData';
+import { useAllSegments, useLiveTail, useRunBars } from '@/components/charts/TradingChart/useChartData';
 import { useHmmStateMap } from '../shared';
 import { segmentInRange, type HistoryFilters } from '../filters';
 import { BarDetailPanel } from './BarDetailPanel';
@@ -88,8 +88,13 @@ export default function TimelineTab({
   const hmmStateMap = useHmmStateMap(run.hmm_model_version_id);
 
   // Shared (SWR-cached) data: all bars + all segments of the run.
-  const { bars, isLoading: barsLoading, error: barsError } = useRunBars(runId, true);
+  const { bars: runBars, isLoading: barsLoading, error: barsError } = useRunBars(runId, true);
   const { segments, isLoading: segLoading, error: segError } = useAllSegments(runId);
+
+  // Live tail: candles newer than the run snapshot are appended (OHLC only,
+  // never model labels) so the timeline keeps moving. The interval mirrors the
+  // collector's M15 feed; polling is cheap (one request per tick).
+  const { bars, liveFromIndex } = useLiveTail(runBars, run.data_end, true);
 
   // Reference version + config come from the vs_reference report.
   const { data: vsRef } = useApi<VsReferenceStats>(`/history/runs/${runId}/stats/vs_reference`);
@@ -114,32 +119,33 @@ export default function TimelineTab({
   }, [filters.start, filters.end]);
 
   // Reference strip: group consecutive bars with identical reference_regime.
+  // Only the analysed run is counted — live tail bars have no model labels.
   const refSegments = useMemo<RefStripSegment[]>(
     () =>
-      groupStripSegments(bars, (b) => b.reference_regime ?? 'UNKNOWN').map((s) => ({
+      groupStripSegments(runBars, (b) => b.reference_regime ?? 'UNKNOWN').map((s) => ({
         start_ts: s.start_ts,
         end_ts: s.end_ts,
         regime: s.key,
       })),
-    [bars]
+    [runBars]
   );
 
-  // Disagreement strip + agreement rate over the full dataset.
+  // Disagreement strip + agreement rate over the analysed run only.
   const { diffSegments, agreementPct } = useMemo(() => {
-    const diffs: DiffStripSegment[] = groupStripSegments(bars, (b) =>
+    const diffs: DiffStripSegment[] = groupStripSegments(runBars, (b) =>
       b.reference_regime != null && b.regime != null && b.reference_regime === b.regime
         ? 'agree'
         : 'disagree'
     ).map((s) => ({ start_ts: s.start_ts, end_ts: s.end_ts, agree: s.key === 'agree' }));
     let agree = 0;
-    for (const b of bars) {
+    for (const b of runBars) {
       if (b.reference_regime != null && b.regime != null && b.reference_regime === b.regime) agree++;
     }
     return {
       diffSegments: diffs,
-      agreementPct: bars.length > 0 ? agree / bars.length : null,
+      agreementPct: runBars.length > 0 ? agree / runBars.length : null,
     };
-  }, [bars]);
+  }, [runBars]);
 
   const selected = useMemo(
     () => segments.find((s) => s.id === selectedId) ?? null,
@@ -204,10 +210,9 @@ export default function TimelineTab({
     <div className={styles.stack}>
       <Notice tone="info">
         🖱 <b>Lăn chuột</b>: phóng to/thu nhỏ · <b>Kéo biểu đồ</b>: di chuyển (pan) · <b>Kéo trục giá</b>:
-        co giãn trục giá · <b>Nhấp đúp</b>: đặt lại toàn bộ. Di chuột để xem đường crosshair dọc + OHLC
-        (O/H/L/C/Vol/Regime/Reference). Bấm vào dải regime hoặc một dòng trong danh sách để chọn segment
-        — biểu đồ tự zoom tới segment đó. <b>Bấm vào cây nến</b> để xem chi tiết thanh nến (OHLC, AI,
-        Reference).
+        co giãn trục giá · <b>Nhấp đúp</b>: đặt lại toàn bộ. <b>Dải xu hướng nằm dưới biểu đồ nến</b>
+        (cùng trục thời gian) để so sánh trực tiếp với giá; di chuột để xem crosshair + OHLC. Bấm vào
+        dải hoặc một dòng trong danh sách để chọn segment. <b>Bấm vào cây nến</b> để xem chi tiết thanh nến.
       </Notice>
 
       <div className={styles.toolbar} style={{ marginBottom: 10 }}>
@@ -236,7 +241,9 @@ export default function TimelineTab({
         subtitle={
           barsLoading
             ? 'Đang tải toàn bộ nến (phân trang)…'
-            : `${fmtNum(bars.length, 0)} nến · ${fmtNum(segments.length, 0)} segments${
+            : `${fmtNum(runBars.length, 0)} nến đã phân tích${
+                liveFromIndex != null ? ` + ${fmtNum(bars.length - runBars.length, 0)} nến live` : ''
+              } · ${fmtNum(segments.length, 0)} segments${
                 hasDateRange ? ` · lọc ngày: ${fmtUtc(filters.start)} → ${fmtUtc(filters.end)}` : ''
               } · nguồn: ${run.data_source ?? '—'}`
         }
@@ -244,7 +251,9 @@ export default function TimelineTab({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
             <Segmented options={STRIP_MODE_OPTIONS} value={stripMode} onChange={setStripMode} />
             <span className={styles.muted} style={{ fontSize: 11 }}>
-              Chế độ dải regime (lightweight-charts · không cần giảm mẫu)
+              {liveFromIndex != null
+                ? 'Dải xu hướng dưới biểu đồ · tự thêm nến mới mỗi 10 giây'
+                : 'Dải xu hướng dưới biểu đồ (lightweight-charts pane)'}
             </span>
           </div>
         }
@@ -279,6 +288,7 @@ export default function TimelineTab({
                 stripMode={stripMode}
                 refSegments={refSegments}
                 diffSegments={diffSegments}
+                liveFromIndex={liveFromIndex}
                 height={560}
               />
             </div>
@@ -357,6 +367,15 @@ export default function TimelineTab({
                 />
                 Segment đang chọn
               </span>
+              {liveFromIndex != null && (
+                <span className={styles.legendItem}>
+                  <span
+                    className={styles.legendDot}
+                    style={{ background: 'rgba(76, 141, 255, 0.35)' }}
+                  />
+                  LIVE — nến mới chưa phân tích
+                </span>
+              )}
             </div>
             {focusRange && (
               <div className={styles.toolbar} style={{ marginTop: 10, marginBottom: 0 }}>

@@ -7,7 +7,7 @@ import { Card, EmptyState, ErrorState, Loading, Segmented } from '@/components/u
 import { fmtNum, fmtPct } from '@/lib/format';
 import { AGREEMENT_NEUTRAL_COLOR, DISAGREEMENT_COLOR } from '@/lib/regime';
 import { useState } from 'react';
-import type { HistoryBar } from '@/lib/types';
+import type { HistoryRegimeBandBar } from '@/lib/types';
 import styles from './market.module.css';
 
 const WINDOW_OPTIONS = [
@@ -21,7 +21,7 @@ export function AiVsReferenceCard({
   loading,
   error,
 }: {
-  bars: HistoryBar[];
+  bars: HistoryRegimeBandBar[];
   loading: boolean;
   error: unknown;
 }) {

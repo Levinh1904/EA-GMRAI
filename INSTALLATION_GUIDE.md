@@ -29,7 +29,17 @@ echo 'NEXT_PUBLIC_API_URL=http://localhost:8000' > .env.local
 npm run dev                     # http://localhost:3000
 ```
 
-Đăng nhập admin mặc định: `admin` / `admin-change-me` (đổi trong backend/.env).
+Sinh toàn bộ secret (JWT key, API key collector, mật khẩu admin) và ghi thẳng vào
+`backend/.env` + DB + `collector/.env`:
+
+```bash
+cd backend
+./.venv/bin/python -m scripts.rotate_secrets
+```
+
+Mật khẩu admin mới chỉ in **một lần** — lưu lại ngay. Dùng `--dry-run` để xem trước.
+Backend sẽ **từ chối khởi động** nếu secret còn rỗng/giá trị mẫu.
+Đăng nhập admin: `admin` + mật khẩu vừa sinh.
 
 ## 3. Production (Docker Compose + PostgreSQL)
 

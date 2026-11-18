@@ -29,8 +29,9 @@ from app.ml.regime_engine import (
     EngineParams,
     combine_scores,
     optimize_thresholds,
-    run_engine_over_time,
+    run_engine_over_time_causal,
 )
+from app.ml.state_detector import compute_state_inputs, detect_state_series
 from app.ml.rf_model import (
     build_rf_features,
     maybe_calibrate,
@@ -38,7 +39,12 @@ from app.ml.rf_model import (
     semantic_probs_array,
     tune_rf,
 )
-from app.ml.splits import WalkForwardConfig, sub_train_val_split, walk_forward_folds
+from app.ml.splits import (
+    WalkForwardConfig,
+    purged_subtrain_subval,
+    sub_train_val_split,
+    walk_forward_folds,
+)
 
 N_M15_FEATURES = len(M15_FEATURES)
 VARIANTS = {"hmm_only": 1.0, "combined": 0.5, "rf_only": 0.0}
@@ -69,13 +75,26 @@ def _scores_for_region(
     rf_probs: pd.DataFrame,
     idx: tuple[int, int],
     weight_hmm: float,
+    feature_df: pd.DataFrame | None = None,
+    state_df: pd.DataFrame | None = None,
+    state_inputs: pd.DataFrame | None = None,
 ) -> list[dict]:
     start, end = idx
     rows = []
     for i in range(start, end):
         hmm_sem = {c: float(semantic_df.iloc[i][c]) for c in semantic_df.columns}
         rf_p = {c: float(rf_probs.iloc[i][c]) for c in rf_probs.columns}
-        rows.append(combine_scores(hmm_sem, rf_p, weight_hmm))
+        row = combine_scores(hmm_sem, rf_p, weight_hmm)
+        if feature_df is not None:
+            ts = feature_df.index[i]
+            if state_df is not None and ts in state_df.index and pd.notna(state_df.loc[ts, "state"]):
+                row["state"] = str(state_df.loc[ts, "state"])
+                row["state_strength"] = float(state_df.loc[ts, "strength"])
+            if state_inputs is not None and ts in state_inputs.index:
+                row["state_displacement"] = float(state_inputs.loc[ts, "displacement"])
+            row["h1_trend_context"] = float(feature_df["h1_trend_context"].iloc[i])
+            row["hour_utc"] = int(feature_df.index[i].hour)
+        rows.append(row)
     return rows
 
 
@@ -88,8 +107,12 @@ def run_fold(
     train: tuple[int, int],
     test: tuple[int, int],
     cfg: BacktestConfig,
+    state_df: pd.DataFrame | None = None,
+    state_inputs: pd.DataFrame | None = None,
 ) -> dict:
-    subtrain, subval = sub_train_val_split(train, cfg.val_frac).values()
+    raw_sub = sub_train_val_split(train, cfg.val_frac)
+    purged = purged_subtrain_subval(raw_sub["subtrain"], raw_sub["subval"], cfg.rf_horizon)
+    subtrain, subval = purged["subtrain"], purged["subval"]
     subval_start, subval_end = subval
     test_start, test_end = test
 
@@ -138,10 +161,23 @@ def run_fold(
     # Per-variant: thresholds tuned on subval, engine applied on test.
     variant_results = {}
     for variant, w in VARIANTS.items():
-        scores_subval = _scores_for_region(semantic_df, rf_probs, subval, w)
-        best_params, opt_score, grid = optimize_thresholds(scores_subval, labels.iloc[subval_start:subval_end])
-        scores_test = _scores_for_region(semantic_df, rf_probs, test, w)
-        engine = run_engine_over_time(scores_test, best_params)
+        scores_subval = _scores_for_region(
+            semantic_df, rf_probs, subval, w, feature_df, state_df, state_inputs
+        )
+        best_params, opt_score, grid = optimize_thresholds(
+            scores_subval,
+            labels.iloc[subval_start:subval_end],
+            causal=True,
+            extra_grid={
+                "min_signal_bars": [1, 3, 5, 9],
+                "min_hold_bars": [0, 8, 16],
+                "state_override_strength": [0.0, 0.45],
+            },
+        )
+        scores_test = _scores_for_region(
+            semantic_df, rf_probs, test, w, feature_df, state_df, state_inputs
+        )
+        engine = run_engine_over_time_causal(scores_test, best_params)
         regime = engine["regime"]
         scored = regime.replace(
             {
@@ -233,11 +269,15 @@ def run_walk_forward(
     if not folds:
         raise ValueError(f"No walk-forward folds for n={n}, cfg={cfg.to_dict()}")
 
+    state_df = detect_state_series(df_m15).reindex(feature_df.index)
+    state_inputs = compute_state_inputs(df_m15).reindex(feature_df.index)
+
     fold_results = []
     for fi, fold in enumerate(folds):
         fr = run_fold(
             X_market, feature_df, labels, close, atr_series,
             fold["train"], fold["test"], cfg,
+            state_df=state_df, state_inputs=state_inputs,
         )
         fr["fold"] = fi
         fold_results.append(fr)

@@ -12,7 +12,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from sqlalchemy import text
 
-from app.config import settings
+from app.config import WEAK_SECRETS, settings
 from app.db import Base, get_engine, session
 from app.models import ApiKey, User
 from app.routers import api_router, limiter
@@ -27,8 +27,14 @@ logger = logging.getLogger("gmrai")
 
 
 def _bootstrap(db) -> None:
-    """Seed admin user and bootstrap API key (idempotent)."""
-    if not db.query(User).filter(User.username == settings.admin_username).first():
+    """Seed admin user and bootstrap API key (idempotent).
+
+    Credentials are never silently created from a placeholder: if the admin
+    password / ingest key are unset the bootstrap is skipped (start-up already
+    refuses in that case unless GMRAI_ALLOW_WEAK_SECRETS=true)."""
+    if settings.admin_password not in WEAK_SECRETS and not db.query(User).filter(
+        User.username == settings.admin_username
+    ).first():
         db.add(
             User(
                 username=settings.admin_username,
@@ -37,7 +43,9 @@ def _bootstrap(db) -> None:
             )
         )
         logger.info("Seeded admin user %r", settings.admin_username)
-    if not db.query(ApiKey).filter(ApiKey.name == "env-bootstrap").first():
+    if settings.api_key not in WEAK_SECRETS and not db.query(ApiKey).filter(
+        ApiKey.name == "env-bootstrap"
+    ).first():
         db.add(
             ApiKey(
                 name="env-bootstrap",
@@ -51,6 +59,7 @@ def _bootstrap(db) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    settings.assert_secure()
     Path("data").mkdir(parents=True, exist_ok=True)
     Path(settings.artifact_dir).mkdir(parents=True, exist_ok=True)
     engine = get_engine()
@@ -98,14 +107,56 @@ def health_root():
     return {"status": "ok"}
 
 
-@app.get("/api/v1/health", tags=["health"])
-def health():
+def _health_payload() -> tuple[dict, bool]:
+    """Shared probe. Returns (payload, healthy)."""
+    from fastapi.responses import JSONResponse  # noqa: F401  (kept for typing clarity)
+
     checks = {"api": "ok"}
+    healthy = True
     try:
         with session() as db:
             db.execute(text("SELECT 1"))
         checks["database"] = "ok"
     except Exception as e:
         checks["database"] = f"error: {type(e).__name__}"
-    checks["worker"] = "running" if not worker._stop.is_set() else "stopped"
-    return checks
+        healthy = False
+    worker_ok = not worker._stop.is_set()
+    checks["worker"] = "running" if worker_ok else "stopped"
+    if not worker_ok:
+        healthy = False
+    return checks, healthy
+
+
+@app.get("/api/v1/health", tags=["health"])
+def health():
+    """Liveness/readiness probe.
+
+    Returns HTTP 503 when the database is unreachable — a 200 with a broken
+    database silently passed every uptime check before.
+    """
+    from fastapi.responses import JSONResponse
+
+    checks, healthy = _health_payload()
+    return JSONResponse(status_code=200 if healthy else 503, content=checks)
+
+
+@app.get("/api/v1/readyz", tags=["health"])
+def readyz():
+    """Readiness: same probe, explicit name for orchestrators."""
+    from fastapi.responses import JSONResponse
+
+    checks, healthy = _health_payload()
+    return JSONResponse(status_code=200 if healthy else 503, content=checks)
+
+
+@app.get("/api/v1/version", tags=["health"])
+def version():
+    from app.config import settings
+
+    return {
+        "app": "gmrai-backend",
+        "version": app.version,
+        "database": settings.database_url.split("://", 1)[0],
+        "automation": settings.automation_enabled,
+        "telegram": settings.telegram_enabled,
+    }

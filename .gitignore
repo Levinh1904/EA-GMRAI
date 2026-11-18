@@ -13,10 +13,19 @@ __pycache__/
 # Data & artifacts
 data/*.db
 backend/gmrai.db
+backend/*.db-journal
+backend/*.db-wal
+backend/*.db-shm
+*.db-journal
+*.db-wal
+*.db-shm
 artifacts/
 collector/checkpoints/
 collector/logs/
 *.log
+
+# Local tooling / assistant state
+.commandcode/
 
 # Node
 frontend/node_modules/
@@ -26,3 +35,4 @@ frontend/.env.local
 
 # OS
 .DS_Store
+.next-build

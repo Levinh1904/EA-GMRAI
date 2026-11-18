@@ -145,30 +145,92 @@ class Worker:
 
         last_quality = 0.0
         last_retrain = 0.0
+        last_telegram = 0.0
+        last_retention = 0.0
+        last_backfill = 0.0
         while not self._stop.wait(30):
             now = time.time()
+            if now - last_backfill >= settings.backfill_interval_seconds:
+                last_backfill = now
+                self._maybe_backfill()
             if now - last_quality >= settings.sync_check_interval_seconds:
                 last_quality = now
                 self.submit_quality_check()
             if now - last_retrain >= settings.retrain_check_interval_seconds:
                 last_retrain = now
                 self._maybe_retrain()
+            if now - last_telegram >= settings.telegram_interval_seconds:
+                last_telegram = now
+                self._maybe_notify_telegram()
+            if now - last_retention >= settings.retention_interval_seconds:
+                last_retention = now
+                self._maybe_prune()
+
+    def _maybe_backfill(self) -> None:
+        """Label every closed bar that was skipped while the app was down.
+
+        The live path only scores the newest candle, so any downtime leaves a hole
+        in the regime history. This closes the gap causally, one bar at a time.
+        """
+        from app.services.prediction import backfill_predictions
+
+        db = _job_session()
+        try:
+            out = backfill_predictions(db)
+            if out.get("scored"):
+                logger.info("Prediction backfill: %s", out)
+        except Exception:  # never let catch-up break the scheduler
+            logger.exception("Prediction backfill failed")
+        finally:
+            db.close()
+
+    def _maybe_prune(self) -> None:
+        """Enforce retention windows (append-only tables grow forever otherwise)."""
+        from app.services.retention import run_retention
+
+        db = _job_session()
+        try:
+            run_retention(db)
+        except Exception:  # never let housekeeping break the scheduler
+            logger.exception("Retention pass failed")
+        finally:
+            db.close()
+
+    def _maybe_notify_telegram(self) -> None:
+        """Score past forecasts, then alert on a new signal (deduped in the DB)."""
+        if not settings.telegram_enabled:
+            return
+        from app.services.forecast import score_pending_forecasts
+        from app.services.telegram import notify_signal
+
+        db = _job_session()
+        try:
+            score_pending_forecasts(db)
+            result = notify_signal(db)
+            if result.get("status") not in ("skipped",):
+                logger.info("Telegram notify: %s", result)
+        except Exception:  # notifications must never break the scheduler
+            logger.exception("Telegram notify failed")
+        finally:
+            db.close()
 
     def _maybe_retrain(self) -> None:
+        from app.services.source import active_source
+
         db = _job_session()
         try:
             last_run = db.query(TrainingRun).order_by(TrainingRun.id.desc()).first()
             if last_run is None or last_run.finished_at is None:
                 db.close()
                 return
-            candles_since = (
-                db.query(MarketCandle)
-                .filter(
-                    MarketCandle.timeframe == "M15",
-                    MarketCandle.ts > last_run.finished_at,
-                )
-                .count()
+            src = active_source(db, "XAUUSD", "M15")
+            q = db.query(MarketCandle).filter(
+                MarketCandle.timeframe == "M15",
+                MarketCandle.ts > last_run.finished_at,
             )
+            if src:
+                q = q.filter(MarketCandle.source == src)
+            candles_since = q.count()
         finally:
             db.close()
         # Trigger retrain if there is meaningful new data since last run.

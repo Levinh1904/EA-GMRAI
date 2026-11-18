@@ -3,6 +3,7 @@ from app.models.models import (
     BacktestMetric,
     BacktestRun,
     BackgroundJob,
+    BarForecast,
     DataQualityReport,
     DataSyncLog,
     HmmModel,
@@ -17,6 +18,7 @@ from app.models.models import (
     RegimeHistoryRun,
     RegimeSegment,
     SystemLog,
+    TelegramMessage,
     TrainingRun,
     User,
 )
@@ -26,6 +28,7 @@ __all__ = [
     "BacktestMetric",
     "BacktestRun",
     "BackgroundJob",
+    "BarForecast",
     "DataQualityReport",
     "DataSyncLog",
     "HmmModel",
@@ -40,6 +43,7 @@ __all__ = [
     "RegimeHistoryRun",
     "RegimeSegment",
     "SystemLog",
+    "TelegramMessage",
     "TrainingRun",
     "User",
 ]

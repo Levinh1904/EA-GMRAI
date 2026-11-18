@@ -1,17 +1,20 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import get_current_user, ingest_identity
 from app.models import DataSyncLog, User
 from app.schemas import CandleBatchIn
+from app.rate_limit import INGEST_LIMIT, limiter
 from app.services.ingestion import IngestionError, ingest_candles
 
 ingest_router = APIRouter(prefix="/ingest", tags=["ingestion"])
 
 
 @ingest_router.post("/candles")
+@limiter.limit(INGEST_LIMIT)
 def ingest(
+    request: Request,
     body: CandleBatchIn,
     timeframe: str = Query("M15", pattern="^(M5|M15|H1)$"),
     identity: dict = Depends(ingest_identity),

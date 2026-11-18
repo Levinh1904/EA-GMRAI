@@ -70,5 +70,32 @@ def get_active_approved(db: Session, model_type: str) -> ModelVersion | None:
     )
 
 
+def get_active_approved_pair(db: Session) -> tuple[ModelVersion, ModelVersion] | None:
+    """Newest approved HMM+RF that belong to the same training pair.
+
+    `model_id` is the id in the HMM/RF table; training creates both rows with the
+    same model_id, so pairing on it prevents mixing an old HMM with a new RF
+    (which silently produces confident garbage because the 5-state layout is the
+    same but the state semantics are not).
+    """
+    hmms = (
+        db.query(ModelVersion)
+        .filter(ModelVersion.model_type == "hmm", ModelVersion.status == "approved")
+        .order_by(ModelVersion.id.desc())
+        .all()
+    )
+    rfs = (
+        db.query(ModelVersion)
+        .filter(ModelVersion.model_type == "random_forest", ModelVersion.status == "approved")
+        .order_by(ModelVersion.id.desc())
+        .all()
+    )
+    for h in hmms:
+        for r in rfs:
+            if h.model_id == r.model_id:
+                return h, r
+    return None
+
+
 def artifact_exists(version: ModelVersion) -> bool:
     return bool(version.artifact_path) and Path(version.artifact_path).exists()

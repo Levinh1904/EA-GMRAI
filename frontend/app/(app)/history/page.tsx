@@ -15,6 +15,7 @@ import hstyles from './history.module.css';
 import OverviewTab from './tabs/OverviewTab';
 import TimelineTab from './tabs/TimelineTab';
 import TrendsTab from './tabs/TrendsTab';
+import DirectionAccuracyTab from './tabs/DirectionAccuracyTab';
 import SidewaysTab from './tabs/SidewaysTab';
 import EarlyTrendTab from './tabs/EarlyTrendTab';
 import SegmentsTab from './tabs/SegmentsTab';
@@ -29,6 +30,7 @@ export type HistoryTabKey =
   | 'overview'
   | 'timeline'
   | 'trends'
+  | 'direction'
   | 'sideways'
   | 'early'
   | 'segments'
@@ -43,6 +45,7 @@ const TABS: Array<{ key: HistoryTabKey; label: string }> = [
   { key: 'overview', label: 'Tổng quan lịch sử' },
   { key: 'timeline', label: 'Timeline lịch sử' },
   { key: 'trends', label: 'Phân tích xu hướng' },
+  { key: 'direction', label: 'Độ chính xác hướng' },
   { key: 'sideways', label: 'Phân tích Sideways' },
   { key: 'early', label: 'Early Trend' },
   { key: 'segments', label: 'Danh sách Segments' },
@@ -55,6 +58,15 @@ const TABS: Array<{ key: HistoryTabKey; label: string }> = [
 ];
 
 const TAB_KEYS = new Set<string>(TABS.map((t) => t.key));
+
+const ENTRY_HOURS = Array.from({ length: 24 }, (_, i) => i);
+const GOOD_ENTRY_HOURS = [6, 8, 14, 17];
+
+function formatEntryHours(hours?: number[] | null): string {
+  if (hours == null) return 'Theo model';
+  if (hours.length === 0 || hours.length === 24) return 'Tất cả';
+  return hours.map((h) => String(h).padStart(2, '0')).join(', ');
+}
 
 interface Toast {
   tone: 'success' | 'danger' | 'info';
@@ -77,6 +89,15 @@ export default function HistoryPage() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [modelVersionId, setModelVersionId] = useState('');
+  // UTC entry hours for the NEXT history run. The engine only opens new trends
+  // in these hours; existing trends may run past the window.
+  const [selectedHours, setSelectedHours] = useState<number[]>(GOOD_ENTRY_HOURS);
+
+  const toggleHour = useCallback((h: number) => {
+    setSelectedHours((prev) =>
+      prev.includes(h) ? prev.filter((x) => x !== h) : [...prev, h].sort((a, b) => a - b)
+    );
+  }, []);
 
   const runs = useApi<HistoryRunListResponse>('/history/runs?limit=20');
   const runList = runs.data?.runs ?? [];
@@ -166,8 +187,11 @@ export default function HistoryPage() {
     if (scheduling) return;
     setScheduling(true);
     try {
-      const resp = await api.startHistoryRun();
-      setToast({ tone: 'success', text: `Đã lên lịch chạy phân tích — run_id ${resp.run_id}` });
+      const resp = await api.startHistoryRun({ hours: selectedHours });
+      setToast({
+        tone: 'success',
+        text: `Đã lên lịch chạy phân tích với giờ entry ${formatEntryHours(selectedHours)} (UTC) — run_id ${resp.run_id}`,
+      });
       setSelectedRunId(resp.run_id);
       await mutate();
     } catch (e) {
@@ -203,13 +227,69 @@ export default function HistoryPage() {
               ))}
             </select>
             {user?.role === 'admin' && (
-              <Button onClick={scheduleRun} disabled={scheduling}>
-                {scheduling ? 'Đang lên lịch…' : 'Chạy phân tích mới'}
+              <Button onClick={scheduleRun} disabled={scheduling} title="Tạo run mới với các giờ entry đã chọn">
+                {scheduling ? 'Đang lên lịch…' : 'Chạy lại với giờ đã chọn'}
               </Button>
             )}
           </div>
         }
       />
+
+      {user?.role === 'admin' ? (
+        <div className={hstyles.sessionFilter}>
+          <div className={hstyles.sessionHead}>
+            <span className={hstyles.filterLabel}>Giờ entry cho lần chạy mới (UTC)</span>
+            <span className={hstyles.sessionValue}>{formatEntryHours(selectedHours)}</span>
+            {activeRun && (
+              <span className={hstyles.filterNote}>
+                Run hiện tại #{activeRun.id}: {formatEntryHours(activeRun.allowed_entry_hours_utc)}
+              </span>
+            )}
+          </div>
+          <div className={hstyles.hourGrid}>
+            {ENTRY_HOURS.map((h) => {
+              const active = selectedHours.includes(h);
+              return (
+                <button
+                  key={h}
+                  type="button"
+                  className={`${hstyles.hourBtn} ${active ? hstyles.hourBtnActive : ''}`}
+                  onClick={() => toggleHour(h)}
+                  aria-pressed={active}
+                  title={`${String(h).padStart(2, '0')}:00 UTC = ${String((h + 7) % 24).padStart(2, '0')}:00 giờ VN`}
+                >
+                  {String(h).padStart(2, '0')}
+                </button>
+              );
+            })}
+          </div>
+          <div className={hstyles.sessionActions}>
+            <Button size="sm" variant="ghost" onClick={() => setSelectedHours(GOOD_ENTRY_HOURS)}>
+              Preset 6,8,14,17
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setSelectedHours(ENTRY_HOURS)}>
+              Tất cả 24h
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setSelectedHours([])}>
+              Bỏ lọc
+            </Button>
+            <span className={hstyles.filterNote}>
+              Chỉ lọc entry; trend đã mở vẫn giữ qua giờ khác. Giờ VN = UTC+7.
+            </span>
+          </div>
+        </div>
+      ) : (
+        activeRun && (
+          <div className={hstyles.sessionFilter}>
+            <div className={hstyles.sessionHead}>
+              <span className={hstyles.filterLabel}>Giờ entry của run #{activeRun.id} (UTC)</span>
+              <span className={hstyles.sessionValue}>
+                {formatEntryHours(activeRun.allowed_entry_hours_utc)}
+              </span>
+            </div>
+          </div>
+        )
+      )}
 
       {toast && (
         <div
@@ -334,6 +414,7 @@ export default function HistoryPage() {
               />
             )}
             {tab === 'trends' && <TrendsTab runId={activeRun.id} />}
+            {tab === 'direction' && <DirectionAccuracyTab run={activeRun} />}
             {tab === 'sideways' && <SidewaysTab runId={activeRun.id} />}
             {tab === 'early' && <EarlyTrendTab runId={activeRun.id} />}
             {tab === 'segments' && (

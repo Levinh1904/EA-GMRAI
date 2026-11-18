@@ -45,7 +45,9 @@ class ApiKey(Base):
 class MarketCandle(Base):
     __tablename__ = "market_candles"
     __table_args__ = (
-        UniqueConstraint("symbol", "timeframe", "ts", name="uq_candle_key"),
+        # `source` is part of the key: two feeds for the same bar are distinct
+        # rows, never one overwriting the other.
+        UniqueConstraint("symbol", "timeframe", "source", "ts", name="uq_candle_key"),
         Index("ix_candle_sym_tf_ts", "symbol", "timeframe", "ts"),
     )
 
@@ -185,7 +187,12 @@ class ModelVersion(Base):
 
 class ModelPrediction(Base):
     __tablename__ = "model_predictions"
-    __table_args__ = (Index("ix_pred_sym_tf_ts", "symbol", "timeframe", "ts"),)
+    __table_args__ = (
+        # One prediction per model version per bar: repeated polling must not
+        # advance the hysteresis engine or append duplicate rows.
+        UniqueConstraint("model_version_id", "symbol", "timeframe", "ts", name="uq_pred_bar"),
+        Index("ix_pred_sym_tf_ts", "symbol", "timeframe", "ts"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     model_version_id: Mapped[int] = mapped_column(Integer, index=True)
@@ -399,3 +406,75 @@ class RegimeSegment(Base):
     split_reason: Mapped[str | None] = mapped_column(String(32), nullable=True)  # data_gap | None
     range_touches_high: Mapped[int] = mapped_column(Integer, default=0)
     range_touches_low: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class BarForecast(Base):
+    """Next-bar directional forecast for one closed M15 bar.
+
+    One row per (symbol, timeframe, bar ts): the forecast is made at bar close
+    and never rewritten, so accuracy can be scored honestly once the following
+    bar closes. `correct` stays NULL until the outcome is known.
+    """
+    __tablename__ = "bar_forecasts"
+    __table_args__ = (
+        UniqueConstraint("symbol", "timeframe", "ts", name="uq_forecast_bar"),
+        Index("ix_forecast_sym_tf_ts", "symbol", "timeframe", "ts"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(16), index=True)
+    timeframe: Mapped[str] = mapped_column(String(8), default="M15")
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))          # bar the forecast is made ON
+    target_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True))   # bar being forecast
+
+    direction: Mapped[str] = mapped_column(String(8))          # UP / DOWN / FLAT
+    probability_up: Mapped[float] = mapped_column(Float, default=0.5)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    regime: Mapped[str | None] = mapped_column(String(24), nullable=True)   # regime at forecast time
+    method: Mapped[str] = mapped_column(String(32), default="hgbt_direction_v1")
+    features_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    note: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+    # ---- outcome (filled in later, never at prediction time) ----
+    actual_direction: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    actual_open: Mapped[float | None] = mapped_column(Float, nullable=True)
+    actual_close: Mapped[float | None] = mapped_column(Float, nullable=True)
+    correct: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    scored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class TelegramMessage(Base):
+    """Full log of every Telegram notification attempt (sent, skipped, failed).
+
+    `dedupe_key` makes alerts idempotent: the same signal for the same bar can
+    never be sent twice, so a repeated poll cannot spam the chat.
+    """
+    __tablename__ = "telegram_messages"
+    __table_args__ = (
+        UniqueConstraint("dedupe_key", name="uq_telegram_dedupe"),
+        Index("ix_telegram_created", "created_at"),
+        Index("ix_telegram_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    dedupe_key: Mapped[str] = mapped_column(String(128))
+    kind: Mapped[str] = mapped_column(String(32), default="signal")  # signal / forecast / test / system
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending/sent/skipped/failed
+
+    symbol: Mapped[str] = mapped_column(String(16), default="XAUUSD")
+    signal: Mapped[str | None] = mapped_column(String(16), nullable=True)   # TREND_UP / TREND_DOWN / ...
+    previous_signal: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    bar_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    text: Mapped[str] = mapped_column(String(4096))
+    reason: Mapped[str | None] = mapped_column(String(256), nullable=True)  # why skipped/failed
+    chat_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # id returned by Telegram
+    error: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

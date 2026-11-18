@@ -17,6 +17,7 @@ import { API_BASE, getAuthToken } from '@/lib/api';
 import { fmtNum, fmtUtcSec } from '@/lib/format';
 import { statusTone } from '@/lib/regime';
 import { useApi } from '@/lib/swr';
+import { ChangePasswordCard } from '@/components/account/ChangePasswordCard';
 import type { SystemLogsResponse, SystemStatus } from '@/lib/types';
 import styles from '../pages.module.css';
 
@@ -94,6 +95,8 @@ export default function SettingsPage() {
           </div>
         </Card>
       </div>
+
+      {user && <ChangePasswordCard username={user.username} />}
 
       <Card title="Trạng thái hệ thống" subtitle="/system/status">
         {system.isLoading && <Loading />}

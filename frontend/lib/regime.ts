@@ -10,6 +10,7 @@ export const REGIME_COLORS: Record<string, string> = {
   EARLY_TREND_UP: '#14b8a6',
   EARLY_TREND_DOWN: '#14b8a6',
   EARLY_TREND: '#14b8a6',
+  TRADE_ENS: '#0ea5e9',
   UNKNOWN: '#4b5563',
 };
 
@@ -22,6 +23,7 @@ export const REGIME_LABELS: Record<string, string> = {
   EARLY_TREND_UP: 'Tăng sớm',
   EARLY_TREND_DOWN: 'Giảm sớm',
   EARLY_TREND: 'Tín hiệu sớm',
+  TRADE_ENS: 'Trade Ens',
   UNKNOWN: 'Không xác định',
 };
 
@@ -64,6 +66,7 @@ export const REASON_CODE_LABELS: Record<string, string> = {
   LOW_CONFIDENCE: 'Độ tin cậy thấp',
   STALE_DATA: 'Dữ liệu cũ',
   TRANSITION_FILTER: 'Bộ lọc chuyển tiếp',
+  TRADE_ENS_ONLY: 'Chỉ trade_ens đang hoạt động',
 };
 
 export function reasonCodeLabel(code: string): string {
@@ -180,6 +183,8 @@ export function regimeShortLabel(regime: string | null | undefined): string {
       return 'Giảm sớm';
     case 'EARLY_TREND':
       return 'Tín hiệu sớm';
+    case 'TRADE_ENS':
+      return 'Trade Ens';
     case 'UNKNOWN':
       return 'Không xác định';
     default:

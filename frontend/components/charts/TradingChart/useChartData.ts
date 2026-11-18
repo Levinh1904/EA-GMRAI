@@ -15,12 +15,18 @@ import type {
   HistoryRun,
   HistoryRunListResponse,
   HistorySegment,
+  HistoryRegimeBandBar,
+  HistoryRegimeBandResponse,
   HistorySegmentsResponse,
+  Regime,
+  RegimeHistoryResponse,
   Timeframe,
 } from '@/lib/types';
 
 export const CANDLE_PAGE = 5000;
 export const BARS_PAGE = 20000;
+/** How often the newest bars are re-fetched so the chart follows the live feed. */
+export const CANDLE_REFRESH_MS = 5000;
 
 // ---------------------------------------------------------------------------
 // Paginated candles (ascending, newest page loaded first)
@@ -109,6 +115,43 @@ export function useCandlesPaged(timeframe: Timeframe): CandlesState {
   }, [oldestOffset, timeframe]);
 
   const reload = useCallback(() => setNonce((n) => n + 1), []);
+
+  // Live tail: re-fetch the newest page on an interval so a newly closed bar
+  // (and the current bar's updated OHLC) appears without a manual reload.
+  // Only the tail is replaced; older pages loaded via loadMore are preserved.
+  useEffect(() => {
+    if (loading || error) return;
+    let cancelled = false;
+
+    const tick = async () => {
+      try {
+        const probe = await api.candles(timeframe, 1, 0);
+        if (cancelled) return;
+        const totalCount = probe.total;
+        if (totalCount === total) return; // no new bars yet
+        const firstOffset = Math.max(0, totalCount - CANDLE_PAGE);
+        const page = await api.candles(timeframe, CANDLE_PAGE, firstOffset);
+        if (cancelled) return;
+        setCandles((prev) => {
+          // Keep anything older than the new page (user-loaded history).
+          const pageStart = page.candles.length
+            ? new Date(page.candles[0].ts).getTime()
+            : Infinity;
+          const older = prev.filter((c) => new Date(c.ts).getTime() < pageStart);
+          return [...older, ...page.candles];
+        });
+        setTotal(page.total);
+      } catch {
+        /* transient poll failure — next interval retries */
+      }
+    };
+
+    const id = window.setInterval(tick, CANDLE_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [timeframe, total, loading, error]);
 
   return {
     candles,
@@ -212,6 +255,27 @@ export function useRunBars(
   return { bars: data ?? [], isLoading, error };
 }
 
+/**
+ * Compact per-bar regime series for a run (labels only).
+ *
+ * Drawing chart bands used to require `/bars`, which carries OHLC, HMM
+ * posteriors, RF probabilities and reference diagnostics: ~630 B/bar, so a full
+ * run was 15 MB and the strip spun for seconds. Bands need only the label, so
+ * this endpoint is ~15x smaller and arrives in one request.
+ */
+export function useRunRegimeBand(runId: number | null): {
+  bars: HistoryRegimeBandBar[];
+  isLoading: boolean;
+  error: unknown;
+} {
+  const { data, isLoading, error } = useSWR<HistoryRegimeBandResponse>(
+    runId != null ? `/history/runs/${runId}/regime-band` : null,
+    () => api.historyRegimeBand(runId as number),
+    { revalidateIfStale: false, revalidateOnFocus: false, refreshInterval: 0 }
+  );
+  return { bars: data?.bars ?? [], isLoading, error };
+}
+
 /** Index bars by unix-seconds timestamp for O(1) lookups. */
 export function useBarsIndex(bars: HistoryBar[]): Map<number, HistoryBar> {
   return useMemo(() => {
@@ -222,6 +286,114 @@ export function useBarsIndex(bars: HistoryBar[]): Map<number, HistoryBar> {
     }
     return map;
   }, [bars]);
+}
+
+/** Poll interval for the live tail appended to a history run. */
+export const HISTORY_TAIL_REFRESH_MS = 10000;
+
+/**
+ * Recent live predictions keyed by bar timestamp.
+ *
+ * The latest done history run is a snapshot; bars that closed afterwards have no
+ * entry in it. Those bars DO have a live regime (the scheduler scores every
+ * closed candle), so we read it from /regime/history and merge it over the run.
+ * This is real model output for those bars — never an interpolation.
+ */
+export function useLiveRegimes(limit = 400): Map<number, { regime: Regime; confidence: number }> {
+  const { data } = useApi<RegimeHistoryResponse>(`/regime/history?limit=${limit}`, {
+    refreshInterval: 15000,
+    revalidateOnFocus: false,
+  });
+  return useMemo(() => {
+    const map = new Map<number, { regime: Regime; confidence: number }>();
+    for (const r of data?.history ?? []) {
+      const t = Math.floor(new Date(r.ts).getTime() / 1000);
+      if (!Number.isNaN(t)) map.set(t, { regime: r.regime, confidence: r.confidence });
+    }
+    return map;
+  }, [data]);
+}
+
+/**
+ * Append candles newer than the analysed run so the timeline keeps moving
+ * after the run snapshot ends.
+ *
+ * The run's model labels are immutable, so tail bars carry OHLC only (regime
+ * stays null) and are rendered with an explicit "LIVE — chưa phân tích" marker.
+ * This never fabricates a prediction: the model is simply not re-run here.
+ */
+export function useLiveTail(
+  bars: HistoryBar[],
+  runDataEnd: string | null | undefined,
+  enabled = true
+): { bars: HistoryBar[]; liveFromIndex: number | null; lastBarTs: string | null } {
+  const [tail, setTail] = useState<HistoryBar[]>([]);
+  const endMs = runDataEnd ? new Date(runDataEnd).getTime() : NaN;
+
+  useEffect(() => {
+    if (!enabled || Number.isNaN(endMs)) {
+      setTail([]);
+      return;
+    }
+    let cancelled = false;
+
+    const tick = async () => {
+      try {
+        // The candles endpoint is ascending, so offset 0 is the OLDEST page.
+        // Probe the total first, then fetch the newest page.
+        const probe = await api.candles('M15', 1, 0);
+        if (cancelled) return;
+        const offset = Math.max(0, probe.total - CANDLE_PAGE);
+        const resp = await api.candles('M15', CANDLE_PAGE, offset);
+        if (cancelled) return;
+        const fresh: HistoryBar[] = resp.candles
+          .filter((c) => new Date(c.ts).getTime() > endMs)
+          .map((c) => ({
+            ts: c.ts,
+            regime: null,
+            confidence: 0,
+            permission: null,
+            hmm_state: null,
+            hmm_posterior: null,
+            rf_probs: null,
+            reason_codes: null,
+            open: c.open,
+            high: c.high,
+            low: c.low,
+            close: c.close,
+            atr_ratio: null,
+            adx_norm: null,
+            efficiency_ratio: null,
+            h1_trend_context: null,
+            m5_momentum: null,
+            reference_regime: null,
+            reference_reason: null,
+            di_gap: null,
+            ema_slope: null,
+            ref_channel_high: null,
+            ref_channel_low: null,
+            ref_displacement: null,
+          }));
+        setTail(fresh);
+      } catch {
+        /* transient — next poll retries */
+      }
+    };
+
+    void tick();
+    const id = window.setInterval(tick, HISTORY_TAIL_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [enabled, endMs]);
+
+  const merged = useMemo(() => (tail.length ? [...bars, ...tail] : bars), [bars, tail]);
+  return {
+    bars: merged,
+    liveFromIndex: tail.length ? bars.length : null,
+    lastBarTs: merged.length ? merged[merged.length - 1].ts : null,
+  };
 }
 
 // ---------------------------------------------------------------------------

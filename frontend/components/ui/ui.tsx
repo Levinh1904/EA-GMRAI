@@ -1,6 +1,7 @@
 'use client';
 
 import type { CSSProperties, ReactNode } from 'react';
+import { useState } from 'react';
 import { regimeColor, regimeLabel, statusLabel, statusTone, type Tone } from '@/lib/regime';
 import styles from './ui.module.css';
 
@@ -341,6 +342,51 @@ export function Field({
   );
 }
 
+export function PasswordField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  autoComplete = 'new-password',
+  hint,
+  id,
+}: {
+  label: ReactNode;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  autoComplete?: string;
+  hint?: ReactNode;
+  id?: string;
+}) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <label className={styles.field}>
+      <span className={styles.fieldLabel}>{label}</span>
+      <span className={styles.inputWrap}>
+        <input
+          id={id}
+          type={visible ? 'text' : 'password'}
+          value={value}
+          placeholder={placeholder}
+          autoComplete={autoComplete}
+          onChange={(e) => onChange(e.target.value)}
+        />
+        <button
+          type="button"
+          className={styles.inputAction}
+          onClick={() => setVisible((v) => !v)}
+          aria-label={visible ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+          title={visible ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+        >
+          {visible ? 'Ẩn' : 'Hiện'}
+        </button>
+      </span>
+      {hint && <span className={styles.hint}>{hint}</span>}
+    </label>
+  );
+}
+
 export function NumberField({
   label,
   value,
@@ -414,13 +460,3 @@ export function JsonBlock({ data, maxHeight }: { data: unknown; maxHeight?: numb
   );
 }
 
-// ---------- Section ----------
-
-export function Section({ title, children }: { title: ReactNode; children: ReactNode }) {
-  return (
-    <div className={styles.section}>
-      <h3 className={styles.sectionTitle}>{title}</h3>
-      {children}
-    </div>
-  );
-}

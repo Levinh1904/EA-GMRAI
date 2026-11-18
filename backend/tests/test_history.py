@@ -252,3 +252,212 @@ def test_period_aggregation_month_quarter_year():
     for p in ("month", "quarter", "year"):
         out = period_aggregation(bars, segs, p)
         assert out["period"] == p and len(out["rows"]) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Direction accuracy: does the trend direction match realised price?
+# ---------------------------------------------------------------------------
+
+def _seg(regime, start_px, end_px, bars=10, delta=15):
+    from datetime import datetime, timedelta, timezone
+
+    t0 = datetime(2026, 1, 5, 0, 0, tzinfo=timezone.utc)
+    t1 = t0 + timedelta(minutes=delta * bars)
+    return {
+        "regime": regime,
+        "start_price": start_px,
+        "end_price": end_px,
+        "start_ts": t0.isoformat(),
+        "end_ts": t1.isoformat(),
+        "bar_count": bars,
+        "duration_minutes": delta * bars,
+        "net_change": end_px - start_px,
+        "mfe": abs(end_px - start_px),
+        "mae": 0.0,
+        "atr_mean": 1.0,
+        "adx_mean": 0.4,
+        "efficiency_mean": 0.5,
+        "confidence_mean": 0.8,
+        "segment_index": 0,
+        "range_touches_high": 0,
+        "range_touches_low": 0,
+    }
+
+
+def test_direction_accuracy_counts_correct_down_segment():
+    from app.ml.history_stats import direction_accuracy
+
+    out = direction_accuracy([_seg("TREND_DOWN", 2400.0, 2380.0)])
+    s = out["per_segment"]["by_regime"]["TREND_DOWN"]
+    assert s["total"] == 1
+    assert s["correct"] == 1
+    assert s["wrong"] == 0
+    assert s["accuracy_pct"] == 100.0
+
+
+def test_direction_accuracy_marks_reversed_segment_wrong():
+    """A TREND_DOWN signal where price ended HIGHER is a wrong call."""
+    from app.ml.history_stats import direction_accuracy
+
+    out = direction_accuracy([_seg("TREND_DOWN", 2400.0, 2410.0)])
+    s = out["per_segment"]["by_regime"]["TREND_DOWN"]
+    assert s["correct"] == 0
+    assert s["wrong"] == 1
+    assert s["accuracy_pct"] == 0.0
+
+
+def test_direction_accuracy_up_and_down_independent():
+    from app.ml.history_stats import direction_accuracy
+
+    segs = [
+        _seg("TREND_UP", 2400.0, 2420.0),    # up, correct
+        _seg("TREND_UP", 2400.0, 2390.0),    # up, wrong
+        _seg("TREND_DOWN", 2400.0, 2370.0),  # down, correct
+        _seg("TREND_DOWN", 2400.0, 2405.0),  # down, wrong
+        _seg("SIDEWAYS", 2400.0, 2401.0),    # ignored by trend accuracy
+    ]
+    out = direction_accuracy(segs)
+    assert out["per_segment"]["by_regime"]["TREND_UP"]["accuracy_pct"] == 50.0
+    assert out["per_segment"]["by_regime"]["TREND_DOWN"]["accuracy_pct"] == 50.0
+    assert out["per_segment"]["overall"] == {
+        "total": 4, "correct": 2, "accuracy_pct": 50.0
+    }
+
+
+def test_direction_accuracy_early_trend_counts_as_its_direction():
+    from app.ml.history_stats import direction_accuracy
+
+    out = direction_accuracy([
+        _seg("EARLY_TREND_DOWN", 2400.0, 2390.0),
+        _seg("EARLY_TREND_UP", 2400.0, 2410.0),
+    ])
+    assert out["per_segment"]["by_regime"]["TREND_DOWN"]["correct"] == 1
+    assert out["per_segment"]["by_regime"]["TREND_UP"]["correct"] == 1
+
+
+def test_direction_accuracy_reports_move_size_and_length():
+    from app.ml.history_stats import direction_accuracy
+
+    out = direction_accuracy([
+        _seg("TREND_DOWN", 1000.0, 990.0, bars=20),   # correct, -1%
+        _seg("TREND_DOWN", 1000.0, 1180.0, bars=5),   # wrong, +18%
+    ])
+    s = out["per_segment"]["by_regime"]["TREND_DOWN"]
+    assert s["mean_move_pct_correct"] == -1.0
+    assert s["mean_move_pct_wrong"] == pytest.approx(18.0)
+    assert s["mean_bars_correct"] == 20.0
+    assert s["mean_bars_wrong"] == 5.0
+
+
+def test_direction_accuracy_empty_is_safe():
+    from app.ml.history_stats import direction_accuracy
+
+    out = direction_accuracy([])
+    assert out["per_segment"]["overall"]["total"] == 0
+    assert out["per_segment"]["by_regime"]["TREND_UP"]["accuracy_pct"] is None
+    assert "definition" in out
+
+
+def test_direction_accuracy_per_bar_uses_next_close():
+    """TREND_DOWN bar is right when the NEXT bar closes lower."""
+    import pandas as pd
+    from app.ml.history_stats import direction_accuracy
+
+    idx = pd.date_range("2026-01-05", periods=4, freq="15min", tz="UTC")
+    bars = pd.DataFrame(
+        {
+            "regime": ["TREND_DOWN", "TREND_DOWN", "TREND_UP", "TREND_UP"],
+            "open": [100, 99, 98, 99],
+            "high": [100.5, 99.5, 99.5, 100.5],
+            "low": [98.5, 97.5, 97.5, 98.5],
+            "close": [99, 98, 99, 100],
+            "atr_ratio": [1.0, 1.0, 1.0, 1.0],
+        },
+        index=idx,
+    )
+    out = direction_accuracy([], bars)
+    # next closes: 98 (<99 → down correct), 99 (>98 → wrong), 100 (>99 → up correct), NaN
+    assert out["per_bar"]["by_regime"]["TREND_DOWN"]["accuracy_pct"] == 50.0
+    assert out["per_bar"]["by_regime"]["TREND_UP"]["accuracy_pct"] == 100.0
+
+
+# ---------------------------------------------------------------------------
+# Wrong-direction deep dive
+# ---------------------------------------------------------------------------
+
+def test_wrong_direction_counts_and_loss():
+    from app.ml.history_stats import wrong_direction_analysis
+
+    segs = [
+        _seg("TREND_DOWN", 1000.0, 990.0),   # correct, -1%
+        _seg("TREND_DOWN", 1000.0, 1020.0),  # wrong, +2% against the call
+        _seg("TREND_UP", 1000.0, 1010.0),    # correct
+        _seg("TREND_UP", 1000.0, 995.0),     # wrong, -0.5% against the call
+    ]
+    out = wrong_direction_analysis(segs)
+    assert out["total"] == 4
+    assert out["wrong_total"] == 2
+    assert out["wrong_pct"] == 50.0
+    assert out["loss"]["mean_adverse_pct"] == pytest.approx(1.25)   # (2.0 + 0.5)/2
+    assert out["loss"]["worst_adverse_pct"] == pytest.approx(2.0)
+
+
+def test_wrong_direction_by_length_exposes_short_runs():
+    from app.ml.history_stats import wrong_direction_analysis
+
+    segs = [
+        _seg("TREND_DOWN", 1000.0, 1010.0, bars=4),   # short + wrong
+        _seg("TREND_DOWN", 1000.0, 1010.0, bars=5),   # short + wrong
+        _seg("TREND_DOWN", 1000.0, 980.0, bars=30),   # long + correct
+    ]
+    out = wrong_direction_analysis(segs)
+    assert out["by_length"]["1-8 nến"]["wrong_pct"] == 100.0
+    assert out["by_length"]["21-50 nến"]["wrong_pct"] == 0.0
+
+
+def test_wrong_direction_failure_types_sum_to_total():
+    from app.ml.history_stats import wrong_direction_analysis
+
+    segs = [
+        _seg("TREND_DOWN", 1000.0, 1010.0),
+        _seg("TREND_UP", 1000.0, 990.0),
+    ]
+    out = wrong_direction_analysis(segs)
+    ft = out["failure_type"]
+    assert ft["never_moved_favourably"] + ft["reversed_after_favourable_move"] == out["wrong_total"]
+
+
+def test_wrong_direction_profile_compares_right_and_wrong():
+    from app.ml.history_stats import wrong_direction_analysis
+
+    segs = [
+        _seg("TREND_UP", 1000.0, 1010.0, bars=20),
+        _seg("TREND_UP", 1000.0, 995.0, bars=5),
+    ]
+    out = wrong_direction_analysis(segs)
+    p = out["profile"]
+    assert p["bars"]["correct_mean"] == 20.0
+    assert p["bars"]["wrong_mean"] == 5.0
+
+
+def test_wrong_direction_per_direction_split():
+    from app.ml.history_stats import wrong_direction_analysis
+
+    segs = [
+        _seg("TREND_DOWN", 1000.0, 1010.0),
+        _seg("TREND_DOWN", 1000.0, 990.0),
+        _seg("TREND_UP", 1000.0, 990.0),
+    ]
+    out = wrong_direction_analysis(segs)
+    assert out["by_direction"]["TREND_DOWN"]["wrong"] == 1
+    assert out["by_direction"]["TREND_DOWN"]["wrong_pct"] == 50.0
+    assert out["by_direction"]["TREND_UP"]["wrong_pct"] == 100.0
+
+
+def test_wrong_direction_empty_is_safe():
+    from app.ml.history_stats import wrong_direction_analysis
+
+    out = wrong_direction_analysis([])
+    assert out["total"] == 0
+    assert "note" in out
+

@@ -1,6 +1,69 @@
 # GMRAI — Project Status
 
-> Cập nhật: 2026-11-11 — **v0.4.0: UI/UX overhaul + TradingView Lightweight Charts hoàn thành (QA trình duyệt).**
+> Cập nhật: 2026-11-16 — **v0.7.0: direction accuracy 37.6% → 62.3% (run #11).**
+
+## 0. v0.7.0 — Độ chính xác hướng (model 9+10, run #11)
+
+- **Root cause**: training/eval dùng retrospective collapse (look-ahead) trong
+  khi live/history dùng causal; `min_signal_bars=9` làm entry muộn; state
+  detector không được tune cùng; live short-trend filter tự khoá.
+- **Fix**: `min_hold_bars` + causal replay; chọn variant theo segment accuracy;
+  nạp state inputs khi tune; lưu `raw_regime`; pair validation theo `model_id`;
+  M5/M15/H1 limits đủ 1 năm; invalidate stats cache sau commit segments.
+- **Kết quả thật**: run #11 (23.904 nến, model versions 9+10) — UP **64.99%**
+  (544/837), DOWN **59.66%** (494/828), overall **62.34%** (1.038/1.665).
+  Baseline run #9: 36.02 / 39.03 / 37.62.
+- **Holdout 15%**: UP 61.47 / DOWN 60.0 / overall 60.67. Trade sim: LONG
+  +$37.668, SHORT +$47.967, tổng **+$85.635** (baseline −$7.011).
+- **Caveat**: F1 12-bar ~0.32, false-trend ~66% — path metric cải thiện nhờ
+  entry sớm/min-hold causal, không phải classifier tốt hơn. Bước tiếp theo nếu
+  cần: feature/label mới + walk-forward selection.
+- **70% gate (run #15)**: thêm `min_disp_signal=1.2` + H1 agreement vào entry
+  gate — full-year **UP 76.61% / DOWN 73.81% / overall 75.19%**; holdout 15%
+  **75.4%**; PnL full-year +$20.820, OOS +$15.656 (run #11 OOS −$1.441).
+  Segment trung bình 7.25 nến; cấu hình G thay thế (hold=12, confirm=3,
+  override=0) đạt 74.2% và PnL full-year +$61.195.
+- **Session filter (run #19)**: chỉ entry trong **UTC 6/8/14/17** (VN
+  13/15/21/00); UI History chọn giờ và chạy lại được. UI inclusive (EARLY
+  counted) 63.35% (UP 65.44/DOWN 61.38, 562 đoạn); **TREND tradeable only
+  50.6%** (UP 52.2/DOWN 49.2, 344 đoạn), **OOS 45.6%** (57 đoạn). PnL
+  **+$137.924** (430 lệnh, win 39.5%, PF 1.33); OOS **+$24.723**.
+- **Correction**: 75–81% trước đó gồm EARLY_TREND (NO_TRADE). Mục tiêu 70%
+  **chưa đạt** trên TREND tradeable; cần model/feature/label mới. UI giờ hiện
+  thêm dòng "Chỉ TREND tradeable" để tránh hiểu nhầm.
+- **Long-side profit filter (run #22)**: LONG cần H1 ≥ 0.20 + |displacement| ≥
+  1.2; SHORT giữ nguyên. Mô phỏng thực tế (entry nến sau, spread/slippage):
+  full **+$91.658** (maxDD −$37.145), OOS **+$33.386** (maxDD −$5.772), LONG
+  OOS +$8.110 (baseline −$3.995). Accuracy tradeable 50.5% — lợi nhuận tăng
+  nhờ bỏ LONG yếu, không phải tăng hit-rate.
+- Models 9/10 approved; 5/6 archived; 7/8 candidate.
+
+## 0. v0.4.1 — Live data & day history
+
+- **Collector live hoạt động lại**: API key đã xoay (rotate) được đồng bộ sang máy
+  Windows; collector chạy trong session tương tác (scheduled task `/it`) để thấy
+  MT5 — sync nến mỗi 60s, tick Bid/Ask mỗi 1s.
+- **Sửa lỗi `send_tick` không nằm trong class** `ApiClient` (collector gọi được).
+- **Trang `/history/day`**: xem lại một ngày (mặc định hôm qua) — OHLC, dải chế
+  độ, phân bố AI vs Reference, segments, chi tiết từng nến. Endpoint
+  `GET /api/v1/history/day?day=YYYY-MM-DD` **nhân quả**: chỉ dùng nến trước cuối
+  ngày được chọn.
+- **Regime & biểu đồ cập nhật liên tục**: chart tải lại nến mới mỗi 5s; regime
+  poll 5s với TTL cache 5s (DB vẫn đảm bảo 1 dòng/nến).
+- 134 tests xanh.
+
+## 0. v0.4.2 — Timeline: dải xu hướng dưới biểu đồ + cập nhật liên tục
+
+- **Dải xu hướng (regime strip) chuyển xuống dưới biểu đồ nến**, cùng trục thời
+  gian, để so sánh trực tiếp với giá. Trước đây dải tô mờ đè lên nến.
+  - 4 chế độ: AI / Reference / Overlay (AI trên + Reference dưới) / Bất đồng.
+  - Màu đặc, tự vẽ nhãn ("Đi ngang", "Xu hướng giảm"…) khi band đủ rộng.
+  - Cắt đúng vùng plot — không đè lên trục giá.
+  - Sửa 2 bug renderer: mảng band chưa sort (binary search hỏng → chỉ vẽ 1 band)
+    và `timeToCoordinate(end + 1)` trả null (skip mọi band).
+- **Timeline cập nhật liên tục**: nến M15 mới hơn run snapshot tự nối vào mỗi
+  10s, đánh dấu dải LIVE "chưa phân tích" (không bịa nhãn mô hình).
+- 134 tests xanh.
 
 ## 1. Trạng thái milestones
 

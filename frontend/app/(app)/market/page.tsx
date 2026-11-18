@@ -23,10 +23,13 @@ import {
   useBarsIndex,
   useCandlesPaged,
   useLatestDoneRun,
+  useLiveRegimes,
   useRunBars,
+  useRunRegimeBand,
   useRunSegments,
 } from '@/components/charts/TradingChart/useChartData';
 import { ChartToolbar } from '@/components/charts/TradingChart/chartToolbar';
+import type { RegimeBand } from '@/components/charts/TradingChart/useChartData';
 import type { TradingChartHandle } from '@/components/charts/TradingChart/TradingChartContainer';
 import { useApi } from '@/lib/swr';
 import { fmtNum } from '@/lib/format';
@@ -60,7 +63,7 @@ export default function MarketPage() {
 
   // ---- Data ---------------------------------------------------------------
   const candles = useCandlesPaged(tf);
-  const regime = useApi<RegimeLatest>('/regime/latest', { refreshInterval: 15000 });
+  const regime = useApi<RegimeLatest>('/regime/latest', { refreshInterval: 5000 });
   const dashboard = useApi<DashboardStats>('/stats/dashboard', { refreshInterval: 10000 });
 
   const doneRun = useLatestDoneRun();
@@ -71,6 +74,31 @@ export default function MarketPage() {
     overlaysOn
   );
   const barsByTime = useBarsIndex(bars);
+  // Compact label-only series: enough to paint the bands and the strip, ~15x
+  // smaller than /bars so the page stops waiting on tens of megabytes.
+  const bandSeries = useRunRegimeBand(doneRun?.id ?? null);
+  // Bars that closed AFTER the latest history run have no row in it. They are
+  // still scored live by the scheduler, so their real regime comes from
+  // /regime/history — otherwise the AI band dies at the run's snapshot and the
+  // last hours of the chart look unanalysed.
+  const liveRegimes = useLiveRegimes(400);
+  const bandBars = useMemo(() => {
+    const runBars = bandSeries.bars;
+    if (!liveRegimes.size) return runBars;
+    const runEnd = doneRun?.data_end ? new Date(doneRun.data_end).getTime() : -Infinity;
+    const out = [...runBars];
+    for (const [sec, live] of liveRegimes) {
+      if (sec * 1000 <= runEnd) continue;
+      out.push({
+        ts: new Date(sec * 1000).toISOString(),
+        regime: live.regime,
+        confidence: live.confidence,
+        reference_regime: null,
+      });
+    }
+    out.sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
+    return out;
+  }, [bandSeries.bars, liveRegimes, doneRun?.data_end]);
   const multiTf = useApi<MultiTfStatsResponse>(
     doneRun ? `/history/runs/${doneRun.id}/stats/multi_tf` : null,
     { revalidateOnFocus: false, refreshInterval: 0 }
@@ -81,19 +109,52 @@ export default function MarketPage() {
   const prev = candles.candles.length > 1 ? candles.candles[candles.candles.length - 2] : null;
   const freshness = dashboard.data?.data_freshness?.[tf];
 
-  const aiBands = useMemo(() => segmentsToBands(segments), [segments]);
-  const refBands = useMemo(() => barsToReferenceBands(bars), [bars]);
-
-  const lastBar = useMemo(() => {
-    if (!bars.length) return null;
-    const lastTs = last ? new Date(last.ts).getTime() : Infinity;
-    // Latest bar at or before the newest loaded candle.
-    for (let i = bars.length - 1; i >= 0; i--) {
-      const t = new Date(bars[i].ts).getTime();
-      if (t <= lastTs) return bars[i];
+  // Bands are derived from the merged compact series so they never stop at the
+  // run snapshot while candles keep closing.
+  const aiBands = useMemo<RegimeBand[]>(() => {
+    const out: RegimeBand[] = [];
+    let cur: RegimeBand | null = null;
+    for (const b of bandBars) {
+      if (!b.regime) {
+        if (cur) out.push(cur);
+        cur = null;
+        continue;
+      }
+      const sec = tsToSec(b.ts);
+      if (!cur || cur.regime !== b.regime) {
+        if (cur) out.push(cur);
+        cur = { start: sec, end: sec, regime: b.regime };
+      } else {
+        cur.end = sec;
+      }
     }
-    return bars[bars.length - 1];
-  }, [bars, last]);
+    if (cur) out.push(cur);
+    return out;
+  }, [bandBars]);
+
+  const refBands = useMemo<RegimeBand[]>(() => {
+    const out: RegimeBand[] = [];
+    let cur: RegimeBand | null = null;
+    for (const b of bandBars) {
+      const regime = b.reference_regime;
+      if (!regime) {
+        if (cur) out.push(cur);
+        cur = null;
+        continue;
+      }
+      const sec = tsToSec(b.ts);
+      if (!cur || cur.regime !== regime) {
+        if (cur) out.push(cur);
+        cur = { start: sec, end: sec, regime };
+      } else {
+        cur.end = sec;
+      }
+    }
+    if (cur) out.push(cur);
+    return out;
+  }, [bandBars]);
+
+  const lastBand = bandBars.length ? bandBars[bandBars.length - 1] : null;
 
   const demoSource =
     candles.candles[0]?.source === 'synthetic_demo' ||
@@ -299,21 +360,21 @@ export default function MarketPage() {
           regime={regime.data ?? null}
           regimeError={regime.error}
           regimeLoading={regime.isLoading}
-          lastBar={lastBar}
+          lastBar={bars.length ? bars[bars.length - 1] : null}
           multiTf={multiTf.data ?? null}
         />
       </div>
 
       <div className={`${pstyles.grid} ${pstyles.cols2}`}>
         <RegimeTimelineStrip
-          bars={bars}
+          bars={bandBars}
           loading={barsLoading}
           error={barsError}
           mode="ai"
           onFocus={handleStripFocus}
           count={240}
         />
-        <AiVsReferenceCard bars={bars} loading={barsLoading} error={barsError} />
+        <AiVsReferenceCard bars={bandBars} loading={bandSeries.isLoading} error={bandSeries.error} />
       </div>
 
       <div className={`${pstyles.grid} ${pstyles.cols2}`}>

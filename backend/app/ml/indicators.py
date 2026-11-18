@@ -51,3 +51,15 @@ def efficiency_ratio(close: pd.Series, n: int = 10) -> pd.Series:
 
 def log_return(close: pd.Series, bars: int = 1) -> pd.Series:
     return np.log(close / close.shift(bars))
+
+
+def rsi(close: pd.Series, n: int = 14) -> pd.Series:
+    """Wilder RSI (raw 0-100 scale)."""
+    delta = close.diff()
+    gain = delta.clip(lower=0.0)
+    loss = (-delta).clip(lower=0.0)
+    avg_gain = gain.ewm(alpha=1.0 / n, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1.0 / n, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    out = 100.0 - 100.0 / (1.0 + rs)
+    return out.where(avg_loss != 0, 100.0)

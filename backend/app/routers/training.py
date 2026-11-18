@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.rate_limit import HEAVY_JOB_LIMIT, limiter
 from app.deps import get_current_user, require_admin
 from app.models import TrainingRun, User
 from app.schemas import TrainingConfigIn
@@ -37,7 +38,9 @@ def list_runs(
 
 
 @training_router.post("/run")
+@limiter.limit(HEAVY_JOB_LIMIT)
 def start_training(
+    request: Request,
     body: TrainingConfigIn,
     _: User = Depends(require_admin),
 ):
@@ -53,7 +56,7 @@ def get_run(
 ):
     r = db.get(TrainingRun, run_id)
     if r is None:
-        return {"error": "not found"}
+        raise HTTPException(404, "Không tìm thấy run.")
     return {
         "id": r.id,
         "status": r.status,
